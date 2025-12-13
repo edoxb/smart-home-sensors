@@ -1,0 +1,15 @@
+{
+  "template_id": "arduino_websocket",
+  "name": "Arduino WebSocket",
+  "description": "Sensore Arduino con comunicazione WebSocket bidirezionale. Riceve dati di temperatura e umidità e può inviare comandi per controllare pin digitali. Arduino si connette al backend come client WebSocket.",
+  "protocol": "websocket",
+  "required_fields": ["name"],
+  "optional_fields": ["ip"],
+  "default_config": {
+    "protocol": "websocket",
+    "enabled": true,
+    "type": "websocket",
+    "poll_interval": 5
+  },
+  "frontend_component": "ArduinoWebSocketControl"
+}

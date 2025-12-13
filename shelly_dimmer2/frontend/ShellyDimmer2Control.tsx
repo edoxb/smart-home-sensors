@@ -38,216 +38,404 @@ export default function ShellyDimmer2Control({ sensorName }: ShellyDimmer2Contro
   }
 
   return (
-    <div className="space-y-4 mt-4">
-      {/* Sezione Controllo Base */}
-      <div className="p-4 rounded-lg border-2" style={{ 
-        borderColor: '#8F0177',
-        background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
+    <div style={{
+      width: '100%',
+      minHeight: '100vh',
+      padding: '2rem',
+      backgroundColor: '#360185',
+      color: '#FFFFFF'
+    }}>
+      {/* Header */}
+      <div style={{ 
+        marginBottom: '2rem', 
+        borderBottom: '2px solid #F4B342', 
+        paddingBottom: '1rem' 
       }}>
-        <h4 className="text-sm font-bold mb-3" style={{ color: '#F4B342' }}>Controllo Luce</h4>
-        
-        {/* Pulsanti controllo */}
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          <button
-            onClick={() => callAPI('/light/turn-on', { brightness }, 'light_on')}
-            disabled={loading.light_on}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.light_on 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #4CAF50, #45a049)',
-              color: '#FFFFFF',
-              opacity: loading.light_on ? 0.7 : 1
-            }}
-          >
-            {loading.light_on ? '...' : 'Accendi'}
-          </button>
-          <button
-            onClick={() => callAPI('/light/turn-off', {}, 'light_off')}
-            disabled={loading.light_off}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.light_off 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #DE1A58, #8F0177)',
-              color: '#FFFFFF',
-              opacity: loading.light_off ? 0.7 : 1
-            }}
-          >
-            {loading.light_off ? '...' : 'Spegni'}
-          </button>
-          <button
-            onClick={() => callAPI('/light/toggle', {}, 'light_toggle')}
-            disabled={loading.light_toggle}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.light_toggle 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #F4B342, #e6a63d)',
-              color: '#FFFFFF',
-              opacity: loading.light_toggle ? 0.7 : 1
-            }}
-          >
-            {loading.light_toggle ? '...' : 'Toggle'}
-          </button>
-        </div>
+        <h1 style={{ color: '#F4B342', fontSize: '2rem', margin: 0 }}>
+          Shelly Dimmer 2: {sensorName}
+        </h1>
       </div>
 
-      {/* Sezione Luminosità */}
-      <div className="p-4 rounded-lg border-2" style={{ 
-        borderColor: '#8F0177',
-        background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
+      {/* Layout a griglia per fullscreen */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))',
+        gap: '2rem'
       }}>
-        <h4 className="text-sm font-bold mb-3" style={{ color: '#F4B342' }}>Luminosità</h4>
-        
-        <div className="mb-3">
-          <label className="block text-xs mb-1" style={{ color: '#FFFFFF', opacity: 0.9 }}>Luminosità (1-100%)</label>
-          <input
-            type="range"
-            min="1"
-            max="100"
-            value={brightness}
-            onChange={(e) => setBrightness(parseInt(e.target.value))}
-            className="w-full"
-            style={{ accentColor: '#F4B342' }}
-          />
-          <div className="text-xs text-center mt-1" style={{ color: '#F4B342' }}>{brightness}%</div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            onClick={() => callAPI('/light/set-brightness', { brightness }, 'set_brightness')}
-            disabled={loading.set_brightness}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.set_brightness 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #F4B342, #e6a63d)',
-              color: '#FFFFFF',
-              opacity: loading.set_brightness ? 0.7 : 1
-            }}
-          >
-            {loading.set_brightness ? '...' : `Imposta ${brightness}%`}
-          </button>
-          <button
-            onClick={() => callAPI('/light/turn-on', { brightness }, 'turn_on_brightness')}
-            disabled={loading.turn_on_brightness}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.turn_on_brightness 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #4CAF50, #45a049)',
-              color: '#FFFFFF',
-              opacity: loading.turn_on_brightness ? 0.7 : 1
-            }}
-          >
-            {loading.turn_on_brightness ? '...' : `Accendi ${brightness}%`}
-          </button>
-        </div>
-
-        {/* Preset luminosità */}
-        <div className="mt-4">
-          <div className="text-xs mb-2" style={{ color: '#FFFFFF', opacity: 0.9 }}>Preset Luminosità:</div>
-          <div className="grid grid-cols-4 gap-2">
+        {/* Sezione Controllo Base */}
+        <div style={{ 
+          padding: '2rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177',
+          background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
+        }}>
+          <h2 style={{ 
+            color: '#F4B342', 
+            marginTop: 0, 
+            marginBottom: '1.5rem', 
+            fontSize: '1.5rem' 
+          }}>
+            Controllo Luce
+          </h2>
+          
+          {/* Pulsanti controllo - più grandi */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(3, 1fr)', 
+            gap: '1rem' 
+          }}>
             <button
-              onClick={() => setBrightness(25)}
-              className="px-2 py-1 text-xs rounded border-2"
-              style={{ borderColor: '#8F0177', backgroundColor: 'rgba(244, 179, 66, 0.3)', color: '#FFFFFF' }}
+              onClick={() => callAPI('/light/turn-on', { brightness }, 'light_on')}
+              disabled={loading.light_on}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.light_on ? 'not-allowed' : 'pointer',
+                background: loading.light_on 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                color: '#FFFFFF',
+                opacity: loading.light_on ? 0.7 : 1
+              }}
             >
-              25%
+              {loading.light_on ? '...' : 'Accendi'}
             </button>
             <button
-              onClick={() => setBrightness(50)}
-              className="px-2 py-1 text-xs rounded border-2"
-              style={{ borderColor: '#8F0177', backgroundColor: 'rgba(244, 179, 66, 0.3)', color: '#FFFFFF' }}
+              onClick={() => callAPI('/light/turn-off', {}, 'light_off')}
+              disabled={loading.light_off}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.light_off ? 'not-allowed' : 'pointer',
+                background: loading.light_off 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #DE1A58, #8F0177)',
+                color: '#FFFFFF',
+                opacity: loading.light_off ? 0.7 : 1
+              }}
             >
-              50%
+              {loading.light_off ? '...' : 'Spegni'}
             </button>
             <button
-              onClick={() => setBrightness(75)}
-              className="px-2 py-1 text-xs rounded border-2"
-              style={{ borderColor: '#8F0177', backgroundColor: 'rgba(244, 179, 66, 0.3)', color: '#FFFFFF' }}
+              onClick={() => callAPI('/light/toggle', {}, 'light_toggle')}
+              disabled={loading.light_toggle}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.light_toggle ? 'not-allowed' : 'pointer',
+                background: loading.light_toggle 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #F4B342, #e6a63d)',
+                color: '#FFFFFF',
+                opacity: loading.light_toggle ? 0.7 : 1
+              }}
             >
-              75%
-            </button>
-            <button
-              onClick={() => setBrightness(100)}
-              className="px-2 py-1 text-xs rounded border-2"
-              style={{ borderColor: '#8F0177', backgroundColor: 'rgba(244, 179, 66, 0.3)', color: '#FFFFFF' }}
-            >
-              100%
+              {loading.light_toggle ? '...' : 'Toggle'}
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Sezione Dimming Progressivo */}
-      <div className="p-4 rounded-lg border-2" style={{ 
-        borderColor: '#8F0177',
-        background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
-      }}>
-        <h4 className="text-sm font-bold mb-3" style={{ color: '#F4B342' }}>Dimming Progressivo</h4>
-        
-        <div className="mb-3">
-          <label className="block text-xs mb-1" style={{ color: '#FFFFFF', opacity: 0.9 }}>Step (1-100%)</label>
-          <input
-            type="range"
-            min="1"
-            max="100"
-            value={dimStep}
-            onChange={(e) => setDimStep(parseInt(e.target.value))}
-            className="w-full"
-            style={{ accentColor: '#F4B342' }}
-          />
-          <div className="text-xs text-center mt-1" style={{ color: '#F4B342' }}>{dimStep}%</div>
+        {/* Sezione Luminosità */}
+        <div style={{ 
+          padding: '2rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177',
+          background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
+        }}>
+          <h2 style={{ 
+            color: '#F4B342', 
+            marginTop: 0, 
+            marginBottom: '1.5rem', 
+            fontSize: '1.5rem' 
+          }}>
+            Luminosità
+          </h2>
+          
+          {/* Slider luminosità - più grande */}
+          <div style={{ marginBottom: '2rem' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '1rem', 
+              color: '#FFFFFF', 
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}>
+              Luminosità (1-100%)
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={brightness}
+              onChange={(e) => setBrightness(parseInt(e.target.value))}
+              style={{ 
+                width: '100%', 
+                height: '12px',
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{ 
+              textAlign: 'center', 
+              marginTop: '1rem', 
+              color: '#F4B342', 
+              fontSize: '2rem',
+              fontWeight: 'bold'
+            }}>
+              {brightness}%
+            </div>
+          </div>
+
+          {/* Pulsanti luminosità */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(2, 1fr)', 
+            gap: '1rem',
+            marginBottom: '2rem'
+          }}>
+            <button
+              onClick={() => callAPI('/light/set-brightness', { brightness }, 'set_brightness')}
+              disabled={loading.set_brightness}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.set_brightness ? 'not-allowed' : 'pointer',
+                background: loading.set_brightness 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #F4B342, #e6a63d)',
+                color: '#FFFFFF',
+                opacity: loading.set_brightness ? 0.7 : 1
+              }}
+            >
+              {loading.set_brightness ? '...' : `Imposta ${brightness}%`}
+            </button>
+            <button
+              onClick={() => callAPI('/light/turn-on', { brightness }, 'turn_on_brightness')}
+              disabled={loading.turn_on_brightness}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.turn_on_brightness ? 'not-allowed' : 'pointer',
+                background: loading.turn_on_brightness 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                color: '#FFFFFF',
+                opacity: loading.turn_on_brightness ? 0.7 : 1
+              }}
+            >
+              {loading.turn_on_brightness ? '...' : `Accendi ${brightness}%`}
+            </button>
+          </div>
+
+          {/* Preset luminosità - più grandi */}
+          <div>
+            <div style={{ 
+              marginBottom: '1rem', 
+              color: '#FFFFFF', 
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}>
+              Preset Luminosità:
+            </div>
+            <div style={{ 
+              display: 'grid', 
+              gridTemplateColumns: 'repeat(4, 1fr)', 
+              gap: '1rem' 
+            }}>
+              <button
+                onClick={() => setBrightness(25)}
+                style={{
+                  padding: '1rem',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  borderRadius: '8px',
+                  border: '2px solid #8F0177',
+                  backgroundColor: 'rgba(244, 179, 66, 0.3)',
+                  color: '#FFFFFF',
+                  cursor: 'pointer'
+                }}
+              >
+                25%
+              </button>
+              <button
+                onClick={() => setBrightness(50)}
+                style={{
+                  padding: '1rem',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  borderRadius: '8px',
+                  border: '2px solid #8F0177',
+                  backgroundColor: 'rgba(244, 179, 66, 0.3)',
+                  color: '#FFFFFF',
+                  cursor: 'pointer'
+                }}
+              >
+                50%
+              </button>
+              <button
+                onClick={() => setBrightness(75)}
+                style={{
+                  padding: '1rem',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  borderRadius: '8px',
+                  border: '2px solid #8F0177',
+                  backgroundColor: 'rgba(244, 179, 66, 0.3)',
+                  color: '#FFFFFF',
+                  cursor: 'pointer'
+                }}
+              >
+                75%
+              </button>
+              <button
+                onClick={() => setBrightness(100)}
+                style={{
+                  padding: '1rem',
+                  fontSize: '1rem',
+                  fontWeight: 'bold',
+                  borderRadius: '8px',
+                  border: '2px solid #8F0177',
+                  backgroundColor: 'rgba(244, 179, 66, 0.3)',
+                  color: '#FFFFFF',
+                  cursor: 'pointer'
+                }}
+              >
+                100%
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <button
-            onClick={() => callAPI('/light/dim', { direction: 'up', step: dimStep }, 'dim_up')}
-            disabled={loading.dim_up}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.dim_up 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #4CAF50, #45a049)',
-              color: '#FFFFFF',
-              opacity: loading.dim_up ? 0.7 : 1
-            }}
-          >
-            {loading.dim_up ? '...' : '↑ Up'}
-          </button>
-          <button
-            onClick={() => callAPI('/light/dim', { direction: 'down', step: dimStep }, 'dim_down')}
-            disabled={loading.dim_down}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.dim_down 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #DE1A58, #8F0177)',
-              color: '#FFFFFF',
-              opacity: loading.dim_down ? 0.7 : 1
-            }}
-          >
-            {loading.dim_down ? '...' : '↓ Down'}
-          </button>
-          <button
-            onClick={() => callAPI('/light/dim', { direction: 'stop' }, 'dim_stop')}
-            disabled={loading.dim_stop}
-            className="px-3 py-2 text-xs font-medium rounded-lg transition-colors"
-            style={{
-              background: loading.dim_stop 
-                ? 'linear-gradient(135deg, #8F0177, #360185)' 
-                : 'linear-gradient(135deg, #F4B342, #e6a63d)',
-              color: '#FFFFFF',
-              opacity: loading.dim_stop ? 0.7 : 1
-            }}
-          >
-            {loading.dim_stop ? '...' : 'Stop'}
-          </button>
+        {/* Sezione Dimming Progressivo */}
+        <div style={{ 
+          padding: '2rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177',
+          background: 'linear-gradient(135deg, rgba(143, 1, 119, 0.3), rgba(54, 1, 133, 0.2))'
+        }}>
+          <h2 style={{ 
+            color: '#F4B342', 
+            marginTop: 0, 
+            marginBottom: '1.5rem', 
+            fontSize: '1.5rem' 
+          }}>
+            Dimming Progressivo
+          </h2>
+          
+          {/* Slider step */}
+          <div style={{ marginBottom: '2rem' }}>
+            <label style={{ 
+              display: 'block', 
+              marginBottom: '1rem', 
+              color: '#FFFFFF', 
+              fontSize: '1rem',
+              fontWeight: 'bold'
+            }}>
+              Step (1-100%)
+            </label>
+            <input
+              type="range"
+              min="1"
+              max="100"
+              value={dimStep}
+              onChange={(e) => setDimStep(parseInt(e.target.value))}
+              style={{ 
+                width: '100%', 
+                height: '12px',
+                cursor: 'pointer'
+              }}
+            />
+            <div style={{ 
+              textAlign: 'center', 
+              marginTop: '1rem', 
+              color: '#F4B342', 
+              fontSize: '1.5rem',
+              fontWeight: 'bold'
+            }}>
+              {dimStep}%
+            </div>
+          </div>
+
+          {/* Pulsanti dimming */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(3, 1fr)', 
+            gap: '1rem' 
+          }}>
+            <button
+              onClick={() => callAPI('/light/dim', { direction: 'up', step: dimStep }, 'dim_up')}
+              disabled={loading.dim_up}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.dim_up ? 'not-allowed' : 'pointer',
+                background: loading.dim_up 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #4CAF50, #45a049)',
+                color: '#FFFFFF',
+                opacity: loading.dim_up ? 0.7 : 1
+              }}
+            >
+              {loading.dim_up ? '...' : '↑ Up'}
+            </button>
+            <button
+              onClick={() => callAPI('/light/dim', { direction: 'down', step: dimStep }, 'dim_down')}
+              disabled={loading.dim_down}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.dim_down ? 'not-allowed' : 'pointer',
+                background: loading.dim_down 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #DE1A58, #8F0177)',
+                color: '#FFFFFF',
+                opacity: loading.dim_down ? 0.7 : 1
+              }}
+            >
+              {loading.dim_down ? '...' : '↓ Down'}
+            </button>
+            <button
+              onClick={() => callAPI('/light/dim', { direction: 'stop' }, 'dim_stop')}
+              disabled={loading.dim_stop}
+              style={{
+                padding: '1rem',
+                fontSize: '1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: 'none',
+                cursor: loading.dim_stop ? 'not-allowed' : 'pointer',
+                background: loading.dim_stop 
+                  ? 'linear-gradient(135deg, #8F0177, #360185)' 
+                  : 'linear-gradient(135deg, #F4B342, #e6a63d)',
+                color: '#FFFFFF',
+                opacity: loading.dim_stop ? 0.7 : 1
+              }}
+            >
+              {loading.dim_stop ? '...' : 'Stop'}
+            </button>
+          </div>
         </div>
       </div>
     </div>
   )
 }
-
