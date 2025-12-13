@@ -14,7 +14,7 @@
     "enabled": true,
     "type": "mqtt",
     "poll_interval": null,
-    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",  // ← Anche qui
+    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#", 
     "mqtt_topic_command": null  
   },
   "mqtt_topics": {
