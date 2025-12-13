@@ -7,7 +7,6 @@ interface ShellyRGBW2ControlProps {
 export default function ShellyRGBW2Control({ sensorName }: ShellyRGBW2ControlProps) {
   const [loading, setLoading] = useState<Record<string, boolean>>({})
   const [colorValues, setColorValues] = useState({ red: 255, green: 255, blue: 255, white: 0 })
-  const [brightness, setBrightness] = useState(50)
 
   const setLoadingState = (action: string, value: boolean) => {
     setLoading(prev => ({ ...prev, [action]: value }))
