@@ -1,0 +1,28 @@
+{
+  "id": "shelly_ht",
+  "name": "Shelly H&T",
+  "description": "Sensore temperatura e umidità Shelly H&T (prima generazione) via MQTT",
+  "protocol": "mqtt",
+  "version": "1.0.0",
+  "template_id": "shelly_ht",
+  "required_fields": ["name", "device_id"],
+  "optional_fields": [],
+  "default_config": {
+    "protocol": "mqtt",
+    "enabled": true,
+    "type": "mqtt",
+    "poll_interval": null,
+    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",
+    "mqtt_topic_command": null
+  },
+  "mqtt_topics": {
+    "temperature": "shellies/shellyht-{device_id}/sensor/temperature",
+    "humidity": "shellies/shellyht-{device_id}/sensor/humidity",
+    "battery": "shellies/shellyht-{device_id}/sensor/battery",
+    "battery_status": "shellies/shellyht-{device_id}/sensor/battery_status",
+    "rssi": "shellies/shellyht-{device_id}/sensor/rssi",
+    "online": "shellies/shellyht-{device_id}/online",
+    "announce": "shellies/shellyht-{device_id}/announce"
+  },
+  "component": "ShellyHT"
+}
