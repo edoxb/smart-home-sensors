@@ -1,0 +1,11 @@
+{
+  "id": "shelly_dimmer2",
+  "name": "Shelly Dimmer 2",
+  "version": "1.0.0",
+  "description": "Dimmer per controllo luminosità luce dimmerabile",
+  "template_id": "shelly_dimmer2",
+  "frontend_component": "ShellyDimmer2Control",
+  "protocol": "http",
+  "required_fields": ["name", "ip"],
+  "optional_fields": []
+}
