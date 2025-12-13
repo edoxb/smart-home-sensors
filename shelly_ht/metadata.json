@@ -7,15 +7,15 @@
   "template_id": "shelly_ht",
   "required_fields": ["name", "device_id"],
   "optional_fields": [],
-  "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",  
-  "mqtt_topic_command": null,  
+  "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",
+  "mqtt_topic_command": null,
   "default_config": {
     "protocol": "mqtt",
     "enabled": true,
     "type": "mqtt",
     "poll_interval": null,
-    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#", 
-    "mqtt_topic_command": null  
+    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",
+    "mqtt_topic_command": null
   },
   "mqtt_topics": {
     "temperature": "shellies/shellyht-{device_id}/sensor/temperature",
@@ -25,6 +25,6 @@
     "rssi": "shellies/shellyht-{device_id}/sensor/rssi",
     "online": "shellies/shellyht-{device_id}/online",
     "announce": "shellies/shellyht-{device_id}/announce"
-  }
+  },
   "component": "ShellyHT"
 }
