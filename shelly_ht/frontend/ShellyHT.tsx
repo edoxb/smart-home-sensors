@@ -21,7 +21,7 @@ const ShellyHT: React.FC<SensorControlProps> = ({ sensorName }) => {
   const fetchData = async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/api/sensors/${sensorName}/data`)
+      const response = await fetch(`/sensors/${sensorName}/data`)
       if (!response.ok) {
         throw new Error(`Errore ${response.status}`)
       }
