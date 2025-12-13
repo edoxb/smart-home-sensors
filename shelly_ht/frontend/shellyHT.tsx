@@ -232,7 +232,7 @@ const ShellyHT: React.FC<SensorControlProps> = ({ sensorName }) => {
         color: '#888'
       }}>
         <strong style={{ color: '#F4B342' }}>Nota:</strong> Shelly H&T pubblica dati ogni ~60 minuti 
-        o quando temperatura varia >1°C o umidità varia >5%. I dati vengono aggiornati automaticamente via MQTT.
+        o quando temperatura varia {'>'}1°C o umidità varia {'>'}5%. I dati vengono aggiornati automaticamente via MQTT.
       </div>
 
       {/* Pulsante refresh manuale */}
