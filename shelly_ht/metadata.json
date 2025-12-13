@@ -7,15 +7,15 @@
   "template_id": "shelly_ht",
   "required_fields": ["name", "device_id"],
   "optional_fields": [],
-  "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",  // ← Aggiungi qui
-  "mqtt_topic_command": null,  // ← Aggiungi qui
+  "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",  // ← A livello ROOT
+  "mqtt_topic_command": null,  // ← A livello ROOT
   "default_config": {
     "protocol": "mqtt",
     "enabled": true,
     "type": "mqtt",
     "poll_interval": null,
-    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",
-    "mqtt_topic_command": null
+    "mqtt_topic_status": "shellies/shellyht-{device_id}/sensor/#",  // ← Anche qui
+    "mqtt_topic_command": null  // ← Anche qui
   },
   "mqtt_topics": { ... },
   "component": "ShellyHT"
