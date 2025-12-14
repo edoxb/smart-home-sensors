@@ -1,0 +1,33 @@
+{
+  "id": "arduino_websocket",
+  "name": "Arduino Grow Box",
+  "description": "Sistema di controllo Grow Box Arduino con sensori temperatura/umidità e attuatori (pompe, resistenza, LED, ventola)",
+  "protocol": "mqtt",
+  "version": "1.0.0",
+  "template_id": "arduino_websocket",
+  "frontend_component": "ArduinoWebSocketControl",
+  "required_fields": ["name", "device_id"],
+  "optional_fields": [],
+  "mqtt_topic_status": "growbox/{device_id}/sensor/#",
+  "mqtt_topic_command": "growbox/{device_id}/command",
+  "default_config": {
+    "protocol": "mqtt",
+    "enabled": true,
+    "type": "mqtt",
+    "poll_interval": null,
+    "mqtt_topic_status": "growbox/{device_id}/sensor/#",
+    "mqtt_topic_command": "growbox/{device_id}/command",
+    "actions": {
+      "pompa_aspirazione_on": "{\"device\":\"pompa_aspirazione\",\"action\":\"on\"}",
+      "pompa_aspirazione_off": "{\"device\":\"pompa_aspirazione\",\"action\":\"off\"}",
+      "pompa_acqua_on": "{\"device\":\"pompa_acqua\",\"action\":\"on\"}",
+      "pompa_acqua_off": "{\"device\":\"pompa_acqua\",\"action\":\"off\"}",
+      "resistenza_on": "{\"device\":\"resistenza\",\"action\":\"on\"}",
+      "resistenza_off": "{\"device\":\"resistenza\",\"action\":\"off\"}",
+      "luce_led_on": "{\"device\":\"luce_led\",\"action\":\"on\"}",
+      "luce_led_off": "{\"device\":\"luce_led\",\"action\":\"off\"}",
+      "ventola_on": "{\"device\":\"ventola\",\"action\":\"on\"}",
+      "ventola_off": "{\"device\":\"ventola\",\"action\":\"off\"}"
+    }
+  }
+}
