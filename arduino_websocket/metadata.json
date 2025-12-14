@@ -1,15 +1,27 @@
 {
+  "id": "arduino_websocket",
+  "name": "Arduino MQTT",
+  "description": "Sensore Arduino con comunicazione MQTT",
+  "protocol": "mqtt",
+  "version": "1.0.0",
   "template_id": "arduino_websocket",
-  "name": "Arduino WebSocket",
-  "description": "Sensore Arduino con comunicazione WebSocket bidirezionale. Riceve dati di temperatura e umidità e può inviare comandi per controllare pin digitali. Arduino si connette al backend come client WebSocket.",
-  "protocol": "websocket",
-  "required_fields": ["name"],
-  "optional_fields": ["ip"],
+  "required_fields": ["name", "device_id"],
+  "optional_fields": [],
+  "mqtt_topic_status": "arduino/{device_id}/status/#",
+  "mqtt_topic_command": "arduino/{device_id}/command",
   "default_config": {
-    "protocol": "websocket",
+    "protocol": "mqtt",
     "enabled": true,
-    "type": "websocket",
-    "poll_interval": 5
+    "type": "mqtt",
+    "poll_interval": null,
+    "mqtt_topic_status": "arduino/{device_id}/status/#",
+    "mqtt_topic_command": "arduino/{device_id}/command"
   },
-  "frontend_component": "ArduinoWebSocketControl"
+  "mqtt_topics": {
+    "status": "arduino/{device_id}/status",
+    "data": "arduino/{device_id}/data",
+    "sensor": "arduino/{device_id}/sensor/#",
+    "command": "arduino/{device_id}/command"
+  },
+  "component": "ArduinoWebSocketControl"
 }
