@@ -1,5 +1,5 @@
 {
-  "id": "arduino_websocket",
+  "id": "arduino_grow_box",
   "name": "Arduino Grow Box",
   "description": "Sistema di controllo Grow Box Arduino con sensori temperatura/umidità e attuatori (pompe, resistenza, LED, ventola)",
   "protocol": "mqtt",
