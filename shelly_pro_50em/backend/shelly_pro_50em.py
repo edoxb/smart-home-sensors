@@ -8,26 +8,79 @@ import json
 router = APIRouter(prefix="/sensors/shelly-pro-50em", tags=["shelly-pro-50em"])
 
 
+def _extract_shelly_pro_50em_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Estrae e processa i dati dai messaggi RPC raw di Shelly Pro 50EM.
+    Questa funzione è specifica del plugin e non modifica il core.
+    """
+    if not isinstance(raw_data, dict):
+        return {}
+    
+    # Se è un messaggio RPC con method e params, estrai i dati
+    if "method" in raw_data and "params" in raw_data:
+        method = raw_data.get("method", "")
+        params = raw_data.get("params", {})
+        
+        # Per NotifyStatus, i dati sono in params
+        if method == "NotifyStatus":
+            extracted_data = {}
+            
+            # Estrai dati em1:0 (canale 1)
+            if "em1:0" in params:
+                em1_0 = params["em1:0"]
+                extracted_data["em1"] = extracted_data.get("em1", {})
+                extracted_data["em1"]["0"] = em1_0
+            
+            # Estrai dati em1:1 (canale 2)
+            if "em1:1" in params:
+                em1_1 = params["em1:1"]
+                extracted_data["em1"] = extracted_data.get("em1", {})
+                extracted_data["em1"]["1"] = em1_1
+            
+            # Aggiungi altri dati utili da params
+            if "ts" in params:
+                extracted_data["ts"] = params["ts"]
+            if "device" in params:
+                extracted_data["device"] = params["device"]
+            if "sys" in params:
+                extracted_data["sys"] = params["sys"]
+            if "wifi" in params:
+                extracted_data["wifi"] = params["wifi"]
+            
+            return extracted_data if extracted_data else params
+    
+    # Se i dati sono già processati (struttura em1), restituiscili così
+    if "em1" in raw_data:
+        return raw_data
+    
+    # Altrimenti restituisci i dati raw
+    return raw_data
+
+
 @router.get("/status")
 async def get_status(
     sensor_name: str = Query(..., description="Nome del sensore"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """
-    Ottiene lo stato completo del dispositivo Shelly Pro 50EM
+    Ottiene lo stato completo del dispositivo Shelly Pro 50EM.
+    Processa i dati raw MQTT per estrarre i valori dei canali.
     """
     if sensor_name not in business_logic.sensors:
         raise HTTPException(status_code=404, detail=f"Sensore '{sensor_name}' non trovato")
     
     sensor = business_logic.sensors[sensor_name]
     
-    # Se il sensore usa MQTT, ottieni i dati dall'ultimo messaggio ricevuto
+    # Se il sensore usa MQTT, ottieni i dati raw dall'ultimo messaggio ricevuto
     if isinstance(sensor.protocol, MQTTProtocol):
         data = await business_logic.read_sensor_data(sensor_name)
-        if data:
+        if data and data.data:
+            # Processa i dati raw per estrarre i valori specifici del plugin
+            processed_data = _extract_shelly_pro_50em_data(data.data)
+            
             return {
                 "success": True,
-                "data": data.data,
+                "data": processed_data,
                 "timestamp": data.timestamp.isoformat() if data.timestamp else None
             }
         else:
@@ -128,15 +181,6 @@ async def get_device_info(
     """
     Ottiene le informazioni del dispositivo
     """
-    # Invia comando RPC per ottenere le info del dispositivo
-    request_data = {
-        "sensor_name": sensor_name,
-        "method": "Shelly.GetDeviceInfo",
-        "params": {}
-    }
-    
-    # Usa la funzione send_rpc_command internamente
-    # Per semplicità, restituiamo i dati dallo stato
     status_response = await get_status(sensor_name, business_logic)
     
     if status_response.get("data"):
