@@ -20,16 +20,8 @@ interface PowerButtonProps {
 }
 
 const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggle }) => {
-  const baseColor = '#51CBEE'
-
   return (
-    <div style={{ 
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      width: '100%'
-    }}>
+    <div style={{ textAlign: 'center' }}>
       <button
         type="button"
         onClick={onToggle}
@@ -38,37 +30,75 @@ const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggl
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          width: '80px',
-          height: '80px',
+          width: '82px',
+          height: '82px',
           borderRadius: '50%',
-          border: `2px solid ${baseColor}`,
-          backgroundColor: 'transparent',
+          border: '2px solid #0d6efd',
+          backgroundColor: isOn ? '#0d6efd' : '#0b3d91',
           cursor: loading ? 'not-allowed' : 'pointer',
-          transition: 'box-shadow 0.4s ease-in-out',
+          transition: 'background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out, transform 0.1s ease-out',
           boxShadow: isOn
-            ? 'inset 0 0 20px rgba(81, 203, 238, 1)'
-            : 'none',
-          opacity: loading ? 0.7 : 1,
-          margin: '0 auto'
+            ? '0 0 18px rgba(13, 110, 253, 0.9), 0 0 35px rgba(13, 110, 253, 0.7)'
+            : '0 0 8px rgba(0, 0, 0, 0.5)',
+          transform: isOn ? 'scale(1.03)' : 'scale(1)',
+          opacity: loading ? 0.7 : 1
         }}
       >
-        <i
-          className="fa fa-power-off fa-2x"
+        {/* Icona power disegnata in puro CSS, senza font esterni */}
+        <div
           style={{
-            color: isOn ? baseColor : 'rgba(255,0,0,0.4)',
-            textShadow: isOn
-              ? '0 0 0 #fff, 0 0 3px #fff, 0 0 20px rgba(81,203,238,1)'
-              : '0 0 20px rgba(255,0,0,0.6)',
-            transition: 'all 0.4s ease-in-out'
+            position: 'relative',
+            width: '38px',
+            height: '38px',
+            borderRadius: '50%',
+            border: '3px solid #ffffff',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            boxShadow: isOn
+              ? '0 0 12px rgba(255,255,255,0.95)'
+              : '0 0 4px rgba(0,0,0,0.6)',
+            transition: 'all 0.3s ease-in-out'
           }}
-        />
+        >
+          {/* asta centrale */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '4px',
+              width: '4px',
+              height: '16px',
+              borderRadius: '2px',
+              backgroundColor: '#ffffff',
+              boxShadow: isOn ? '0 0 6px rgba(255,255,255,0.9)' : 'none',
+              transition: 'all 0.3s ease-in-out'
+            }}
+          />
+          {/* arco circolare */}
+          <div
+            style={{
+              width: '20px',
+              height: '20px',
+              borderRadius: '50%',
+              borderWidth: '3px',
+              borderStyle: 'solid',
+              borderColor: '#ffffff',
+              borderTopColor: 'transparent',
+              opacity: isOn ? 1 : 0.7,
+              transform: isOn ? 'rotate(0deg)' : 'rotate(-18deg)',
+              boxShadow: isOn ? '0 0 8px rgba(255,255,255,0.9)' : 'none',
+              transition: 'all 0.3s ease-in-out'
+            }}
+          />
+        </div>
       </button>
-      <div style={{ 
-        marginTop: '0.5rem', 
-        fontSize: '0.85rem',
-        color: '#FFFFFF',
-        textAlign: 'center'
-      }}>
+      <div
+        style={{
+          marginTop: '0.5rem',
+          fontSize: '0.85rem',
+          color: isOn ? '#51CBEE' : '#ffffff'
+        }}
+      >
         {label} {loading ? '...' : isOn ? '(ON)' : '(OFF)'}
       </div>
     </div>
@@ -277,13 +307,9 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
+            border: '2px solid #8F0177'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem', textAlign: 'center' }}>
+            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Pompa Aspirazione
             </h3>
             <PowerButton
@@ -312,13 +338,9 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
+            border: '2px solid #8F0177'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem', textAlign: 'center' }}>
+            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Pompa Acqua
             </h3>
             <PowerButton
@@ -347,13 +369,9 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
+            border: '2px solid #8F0177'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem', textAlign: 'center' }}>
+            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Resistenza Scaldante
             </h3>
             <PowerButton
@@ -382,13 +400,9 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
+            border: '2px solid #8F0177'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem', textAlign: 'center' }}>
+            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Luce LED
             </h3>
             <PowerButton
@@ -417,13 +431,9 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center'
+            border: '2px solid #8F0177'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem', textAlign: 'center' }}>
+            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Ventola
             </h3>
             <PowerButton
