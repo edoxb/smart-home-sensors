@@ -10,6 +10,7 @@ interface ArduinoGrowBoxData {
   humidity_1?: number
   humidity_2?: number
   humidity_3?: number
+  water_level?: number
 }
 
 interface PowerButtonProps {
@@ -21,7 +22,7 @@ interface PowerButtonProps {
 
 const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggle }) => {
   return (
-    <div style={{ textAlign: 'center' }}>
+    <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
       <button
         type="button"
         onClick={onToggle}
@@ -337,6 +338,33 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 </div>
               </div>
             </div>
+
+            {/* Livello Acqua */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <rect x="4" y="6" width="16" height="14" rx="2" stroke="#00BCD4" strokeWidth="2" fill="none"/>
+                <rect x="6" y="16" width="12" height="2" fill="#00BCD4" opacity="0.6"/>
+                <rect x="6" y="12" width="12" height="2" fill="#00BCD4" opacity="0.4"/>
+                <rect x="6" y="8" width="12" height="2" fill="#00BCD4" opacity="0.2"/>
+                <path d="M8 4V6" stroke="#00BCD4" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M16 4V6" stroke="#00BCD4" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Livello Acqua
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#00BCD4' }}>
+                  {data.water_level !== undefined ? `${data.water_level}%` : 'N/A'}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -357,11 +385,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177'
+            border: '2px solid #8F0177',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
-              Pompa Aspirazione
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="8" stroke="#F4B342" strokeWidth="2" fill="none"/>
+                <path d="M8 12L12 8L16 12" stroke="#F4B342" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M12 8V16" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <h3 style={{ color: '#F4B342', margin: 0 }}>
+                Pompa Aspirazione
+              </h3>
+            </div>
             <PowerButton
               label="Pompa Aspirazione"
               isOn={pompaAspirazioneOn}
@@ -388,11 +426,22 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177'
+            border: '2px solid #8F0177',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
-              Pompa Acqua
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
+                <path d="M12 14V20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M8 20H16" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="12" cy="11" r="1.5" fill="#F4B342"/>
+              </svg>
+              <h3 style={{ color: '#F4B342', margin: 0 }}>
+                Pompa Acqua
+              </h3>
+            </div>
             <PowerButton
               label="Pompa Acqua"
               isOn={pompaAcquaOn}
@@ -419,11 +468,20 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177'
+            border: '2px solid #8F0177',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
-              Resistenza Scaldante
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
+                <path d="M12 16V22" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <h3 style={{ color: '#F4B342', margin: 0 }}>
+                Resistenza Scaldante
+              </h3>
+            </div>
             <PowerButton
               label="Resistenza"
               isOn={resistenzaOn}
@@ -450,11 +508,22 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177'
+            border: '2px solid #8F0177',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
-              Luce LED
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9 21H15" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M12 3V9" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M12 9C15.3137 9 18 11.6863 18 15C18 18.3137 15.3137 21 12 21C8.68629 21 6 18.3137 6 15C6 11.6863 8.68629 9 12 9Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
+                <path d="M12 9L14 7L12 5L10 7L12 9Z" stroke="#F4B342" strokeWidth="2" strokeLinejoin="round"/>
+              </svg>
+              <h3 style={{ color: '#F4B342', margin: 0 }}>
+                Luce LED
+              </h3>
+            </div>
             <PowerButton
               label="Luce LED"
               isOn={luceLedOn}
@@ -481,11 +550,27 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             backgroundColor: 'rgba(143, 1, 119, 0.3)',
             padding: '1.5rem',
             borderRadius: '12px',
-            border: '2px solid #8F0177'
+            border: '2px solid #8F0177',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center'
           }}>
-            <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
-              Ventola
-            </h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="12" cy="12" r="8" stroke="#F4B342" strokeWidth="2" fill="none"/>
+                <path d="M12 4V8" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M12 16V20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M4 12H8" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M16 12H20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M6.34314 6.34314L9.17157 9.17157" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M14.8284 14.8284L17.6569 17.6569" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M17.6569 6.34314L14.8284 9.17157" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M9.17157 14.8284L6.34314 17.6569" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+              <h3 style={{ color: '#F4B342', margin: 0 }}>
+                Ventola
+              </h3>
+            </div>
             <PowerButton
               label="Ventola"
               isOn={ventolaOn}
