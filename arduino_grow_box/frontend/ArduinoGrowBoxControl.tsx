@@ -36,11 +36,10 @@ const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggl
           border: '2px solid #0d6efd',
           backgroundColor: isOn ? '#0d6efd' : '#0b3d91',
           cursor: loading ? 'not-allowed' : 'pointer',
-          transition: 'background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out, transform 0.1s ease-out',
+          transition: 'background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
           boxShadow: isOn
             ? '0 0 18px rgba(13, 110, 253, 0.9), 0 0 35px rgba(13, 110, 253, 0.7)'
             : '0 0 8px rgba(0, 0, 0, 0.5)',
-          transform: isOn ? 'scale(1.03)' : 'scale(1)',
           opacity: loading ? 0.7 : 1
         }}
       >
@@ -58,7 +57,7 @@ const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggl
             boxShadow: isOn
               ? '0 0 12px rgba(255,255,255,0.95)'
               : '0 0 4px rgba(0,0,0,0.6)',
-            transition: 'all 0.3s ease-in-out'
+            transition: 'box-shadow 0.3s ease-in-out'
           }}
         >
           {/* asta centrale */}
@@ -71,7 +70,7 @@ const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggl
               borderRadius: '2px',
               backgroundColor: '#ffffff',
               boxShadow: isOn ? '0 0 6px rgba(255,255,255,0.9)' : 'none',
-              transition: 'all 0.3s ease-in-out'
+              transition: 'box-shadow 0.3s ease-in-out'
             }}
           />
           {/* arco circolare */}
@@ -85,9 +84,8 @@ const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggl
               borderColor: '#ffffff',
               borderTopColor: 'transparent',
               opacity: isOn ? 1 : 0.7,
-              transform: isOn ? 'rotate(0deg)' : 'rotate(-18deg)',
               boxShadow: isOn ? '0 0 8px rgba(255,255,255,0.9)' : 'none',
-              transition: 'all 0.3s ease-in-out'
+              transition: 'opacity 0.3s ease-in-out, box-shadow 0.3s ease-in-out'
             }}
           />
         </div>
@@ -210,82 +208,134 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         </h2>
 
         <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
-          gap: '1.5rem'
+          backgroundColor: 'rgba(143, 1, 119, 0.3)',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177'
         }}>
-          {/* Temperatura 1 */}
           <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177'
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+            gap: '1rem'
           }}>
-            <div style={{ color: '#F4B342', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-              Temperatura 1
+            {/* Temperatura 1 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
+                <path d="M12 14V18" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M12 18C13.1046 18 14 18.8954 14 20C14 21.1046 13.1046 22 12 22C10.8954 22 10 21.1046 10 20C10 18.8954 10.8954 18 12 18Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Temp 1
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#4CAF50' }}>
+                  {data.temperature_1 !== undefined ? `${data.temperature_1.toFixed(1)}°C` : 'N/A'}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#4CAF50' }}>
-              {data.temperature_1 !== undefined ? `${data.temperature_1.toFixed(1)}°C` : 'N/A'}
-            </div>
-          </div>
 
-          {/* Temperatura 2 */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177'
-          }}>
-            <div style={{ color: '#F4B342', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-              Temperatura 2
+            {/* Temperatura 2 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
+                <path d="M12 14V18" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round"/>
+                <path d="M12 18C13.1046 18 14 18.8954 14 20C14 21.1046 13.1046 22 12 22C10.8954 22 10 21.1046 10 20C10 18.8954 10.8954 18 12 18Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Temp 2
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#4CAF50' }}>
+                  {data.temperature_2 !== undefined ? `${data.temperature_2.toFixed(1)}°C` : 'N/A'}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#4CAF50' }}>
-              {data.temperature_2 !== undefined ? `${data.temperature_2.toFixed(1)}°C` : 'N/A'}
-            </div>
-          </div>
 
-          {/* Umidità 1 */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177'
-          }}>
-            <div style={{ color: '#F4B342', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-              Umidità 1
+            {/* Umidità 1 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M12 2.69L5 6.69V11C5 15.97 9.03 20 14 20C18.97 20 23 15.97 23 11V6.69L16 2.69C15.38 2.31 14.62 2.31 14 2.69Z" stroke="#2196F3" strokeWidth="2" fill="none"/>
+                <path d="M12 2.69V8" stroke="#2196F3" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="14" cy="11" r="2" fill="#2196F3" opacity="0.3"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Umidità 1
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#2196F3' }}>
+                  {data.humidity_1 !== undefined ? `${data.humidity_1}%` : 'N/A'}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#2196F3' }}>
-              {data.humidity_1 !== undefined ? `${data.humidity_1}%` : 'N/A'}
-            </div>
-          </div>
 
-          {/* Umidità 2 */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177'
-          }}>
-            <div style={{ color: '#F4B342', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-              Umidità 2
+            {/* Umidità 2 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M12 2.69L5 6.69V11C5 15.97 9.03 20 14 20C18.97 20 23 15.97 23 11V6.69L16 2.69C15.38 2.31 14.62 2.31 14 2.69Z" stroke="#2196F3" strokeWidth="2" fill="none"/>
+                <path d="M12 2.69V8" stroke="#2196F3" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="14" cy="11" r="2" fill="#2196F3" opacity="0.3"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Umidità 2
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#2196F3' }}>
+                  {data.humidity_2 !== undefined ? `${data.humidity_2}%` : 'N/A'}
+                </div>
+              </div>
             </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#2196F3' }}>
-              {data.humidity_2 !== undefined ? `${data.humidity_2}%` : 'N/A'}
-            </div>
-          </div>
 
-          {/* Umidità 3 */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177'
-          }}>
-            <div style={{ color: '#F4B342', fontSize: '0.9rem', marginBottom: '0.5rem' }}>
-              Umidità 3
-            </div>
-            <div style={{ fontSize: '2.5rem', fontWeight: 'bold', color: '#2196F3' }}>
-              {data.humidity_3 !== undefined ? `${data.humidity_3}%` : 'N/A'}
+            {/* Umidità 3 */}
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              padding: '0.75rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px'
+            }}>
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                <path d="M12 2.69L5 6.69V11C5 15.97 9.03 20 14 20C18.97 20 23 15.97 23 11V6.69L16 2.69C15.38 2.31 14.62 2.31 14 2.69Z" stroke="#2196F3" strokeWidth="2" fill="none"/>
+                <path d="M12 2.69V8" stroke="#2196F3" strokeWidth="2" strokeLinecap="round"/>
+                <circle cx="14" cy="11" r="2" fill="#2196F3" opacity="0.3"/>
+              </svg>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
+                  Umidità 3
+                </div>
+                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#2196F3' }}>
+                  {data.humidity_3 !== undefined ? `${data.humidity_3}%` : 'N/A'}
+                </div>
+              </div>
             </div>
           </div>
         </div>
