@@ -5,56 +5,102 @@ from app.dependencies import get_business_logic
 from app.protocols.mqtt_protocol import MQTTProtocol
 import json
 
-router = APIRouter(prefix="/sensors/shelly-pro-50em", tags=["shelly-pro-50em"])
-
 
 def _extract_shelly_pro_50em_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Estrae e processa i dati dai messaggi RPC raw di Shelly Pro 50EM.
-    Questa funzione è specifica del plugin e non modifica il core.
+    Estrae e formatta i dati dai messaggi RPC Shelly Pro 50EM.
+    
+    I messaggi arrivano in formato:
+    {
+        "src": "...",
+        "dst": "...",
+        "method": "NotifyStatus" o "NotifyFullStatus",
+        "params": {
+            "em1:0": {...},
+            "em1:1": {...},
+            "em1data:0": {...},
+            "em1data:1": {...},
+            "wifi": {...},
+            "sys": {...},
+            ...
+        }
+    }
+    
+    Restituisce una struttura formattata per il frontend.
     """
     if not isinstance(raw_data, dict):
         return {}
     
-    # Se è un messaggio RPC con method e params, estrai i dati
+    # Se il dato è già un messaggio RPC Shelly, estrai i params
     if "method" in raw_data and "params" in raw_data:
-        method = raw_data.get("method", "")
         params = raw_data.get("params", {})
-        
-        # Per NotifyStatus, i dati sono in params
-        if method == "NotifyStatus":
-            extracted_data = {}
-            
-            # Estrai dati em1:0 (canale 1)
-            if "em1:0" in params:
-                em1_0 = params["em1:0"]
-                extracted_data["em1"] = extracted_data.get("em1", {})
-                extracted_data["em1"]["0"] = em1_0
-            
-            # Estrai dati em1:1 (canale 2)
-            if "em1:1" in params:
-                em1_1 = params["em1:1"]
-                extracted_data["em1"] = extracted_data.get("em1", {})
-                extracted_data["em1"]["1"] = em1_1
-            
-            # Aggiungi altri dati utili da params
-            if "ts" in params:
-                extracted_data["ts"] = params["ts"]
-            if "device" in params:
-                extracted_data["device"] = params["device"]
-            if "sys" in params:
-                extracted_data["sys"] = params["sys"]
-            if "wifi" in params:
-                extracted_data["wifi"] = params["wifi"]
-            
-            return extracted_data if extracted_data else params
+    elif "em1:0" in raw_data or "em1:1" in raw_data:
+        # Se i dati sono già estratti (solo params)
+        params = raw_data
+    else:
+        # Altrimenti usa i dati così come sono
+        params = raw_data
     
-    # Se i dati sono già processati (struttura em1), restituiscili così
-    if "em1" in raw_data:
-        return raw_data
+    # Estrai i dati dei due canali di misurazione
+    formatted_data = {
+        "channels": {},
+        "energy_data": {},
+        "wifi": params.get("wifi", {}),
+        "sys": params.get("sys", {}),
+        "device": params.get("device", {}),
+        "mqtt": params.get("mqtt", {}),
+        "ts": params.get("ts")
+    }
     
-    # Altrimenti restituisci i dati raw
-    return raw_data
+    # Canale 0 (em1:0)
+    if "em1:0" in params:
+        em1_0 = params["em1:0"]
+        formatted_data["channels"]["0"] = {
+            "id": em1_0.get("id", 0),
+            "act_power": em1_0.get("act_power", 0),  # Potenza attiva (W)
+            "aprt_power": em1_0.get("aprt_power", 0),  # Potenza apparente (VA)
+            "voltage": em1_0.get("voltage", 0),  # Tensione (V)
+            "current": em1_0.get("current", 0),  # Corrente (A)
+            "pf": em1_0.get("pf", 0),  # Power factor
+            "freq": em1_0.get("freq", 0),  # Frequenza (Hz)
+            "calibration": em1_0.get("calibration", "")
+        }
+    
+    # Canale 1 (em1:1)
+    if "em1:1" in params:
+        em1_1 = params["em1:1"]
+        formatted_data["channels"]["1"] = {
+            "id": em1_1.get("id", 1),
+            "act_power": em1_1.get("act_power", 0),
+            "aprt_power": em1_1.get("aprt_power", 0),
+            "voltage": em1_1.get("voltage", 0),
+            "current": em1_1.get("current", 0),
+            "pf": em1_1.get("pf", 0),
+            "freq": em1_1.get("freq", 0),
+            "calibration": em1_1.get("calibration", "")
+        }
+    
+    # Dati energia accumulata (em1data:0 e em1data:1)
+    if "em1data:0" in params:
+        em1data_0 = params["em1data:0"]
+        formatted_data["energy_data"]["0"] = {
+            "id": em1data_0.get("id", 0),
+            "total_act_energy": em1data_0.get("total_act_energy", 0),  # Energia totale (Wh)
+            "total_act_ret_energy": em1data_0.get("total_act_ret_energy", 0)  # Energia restituita (Wh)
+        }
+    
+    if "em1data:1" in params:
+        em1data_1 = params["em1data:1"]
+        formatted_data["energy_data"]["1"] = {
+            "id": em1data_1.get("id", 1),
+            "total_act_energy": em1data_1.get("total_act_energy", 0),
+            "total_act_ret_energy": em1data_1.get("total_act_ret_energy", 0)
+        }
+    
+    return formatted_data
+
+
+router = APIRouter(prefix="/sensors/shelly-pro-50em", tags=["shelly-pro-50em"])
 
 
 @router.get("/status")
@@ -63,30 +109,38 @@ async def get_status(
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """
-    Ottiene lo stato completo del dispositivo Shelly Pro 50EM.
-    Processa i dati raw MQTT per estrarre i valori dei canali.
+    Ottiene lo stato completo del dispositivo Shelly Pro 50EM con dati formattati.
+    Estrae i dati dai messaggi RPC Shelly e li formatta per il frontend.
     """
     if sensor_name not in business_logic.sensors:
         raise HTTPException(status_code=404, detail=f"Sensore '{sensor_name}' non trovato")
     
     sensor = business_logic.sensors[sensor_name]
     
-    # Se il sensore usa MQTT, ottieni i dati raw dall'ultimo messaggio ricevuto
+    # Se il sensore usa MQTT, ottieni i dati dall'ultimo messaggio ricevuto
     if isinstance(sensor.protocol, MQTTProtocol):
         data = await business_logic.read_sensor_data(sensor_name)
         if data and data.data:
-            # Processa i dati raw per estrarre i valori specifici del plugin
-            processed_data = _extract_shelly_pro_50em_data(data.data)
+            # Estrai e formatta i dati dai messaggi RPC Shelly
+            formatted_data = _extract_shelly_pro_50em_data(data.data)
             
             return {
                 "success": True,
-                "data": processed_data,
+                "data": formatted_data,
+                "raw_data": data.data,  # Mantieni anche i dati grezzi per debug
                 "timestamp": data.timestamp.isoformat() if data.timestamp else None
             }
         else:
             return {
                 "success": True,
-                "data": {},
+                "data": {
+                    "channels": {},
+                    "energy_data": {},
+                    "wifi": {},
+                    "sys": {},
+                    "device": {},
+                    "mqtt": {}
+                },
                 "message": "Nessun dato disponibile ancora"
             }
     else:
@@ -181,6 +235,15 @@ async def get_device_info(
     """
     Ottiene le informazioni del dispositivo
     """
+    # Invia comando RPC per ottenere le info del dispositivo
+    request_data = {
+        "sensor_name": sensor_name,
+        "method": "Shelly.GetDeviceInfo",
+        "params": {}
+    }
+    
+    # Usa la funzione send_rpc_command internamente
+    # Per semplicità, restituiamo i dati dallo stato
     status_response = await get_status(sensor_name, business_logic)
     
     if status_response.get("data"):
@@ -195,3 +258,4 @@ async def get_device_info(
         "data": {},
         "message": "Informazioni dispositivo non disponibili"
     }
+
