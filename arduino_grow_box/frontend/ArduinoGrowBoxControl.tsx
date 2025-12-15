@@ -12,11 +12,69 @@ interface ArduinoGrowBoxData {
   humidity_3?: number
 }
 
+interface PowerButtonProps {
+  label: string
+  isOn: boolean
+  loading: boolean
+  onToggle: () => void | Promise<void>
+}
+
+const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggle }) => {
+  const baseColor = '#51CBEE'
+
+  return (
+    <div style={{ textAlign: 'center' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={loading}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '80px',
+          height: '80px',
+          borderRadius: '50%',
+          border: `2px solid ${baseColor}`,
+          backgroundColor: 'transparent',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          transition: 'box-shadow 0.4s ease-in-out',
+          boxShadow: isOn
+            ? 'inset 0 0 20px rgba(81, 203, 238, 1)'
+            : 'none',
+          opacity: loading ? 0.7 : 1
+        }}
+      >
+        <i
+          className="fa fa-power-off fa-2x"
+          style={{
+            color: isOn ? baseColor : 'rgba(255,0,0,0.4)',
+            textShadow: isOn
+              ? '0 0 0 #fff, 0 0 3px #fff, 0 0 20px rgba(81,203,238,1)'
+              : '0 0 20px rgba(255,0,0,0.6)',
+            transition: 'all 0.4s ease-in-out'
+          }}
+        />
+      </button>
+      <div style={{ marginTop: '0.5rem', fontSize: '0.85rem' }}>
+        {label} {loading ? '...' : isOn ? '(ON)' : '(OFF)'}
+      </div>
+    </div>
+  )
+}
+
 const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => {
   const [data, setData] = useState<ArduinoGrowBoxData>({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+
+  // stato locale per i 5 attuatori
+  const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
+  const [pompaAcquaOn, setPompaAcquaOn] = useState(false)
+  const [resistenzaOn, setResistenzaOn] = useState(false)
+  const [luceLedOn, setLuceLedOn] = useState(false)
+  const [ventolaOn, setVentolaOn] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -48,8 +106,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         method: 'POST'
       })
       if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.detail || 'Errore nella richiesta')
+        const errorResp = await response.json()
+        throw new Error(errorResp.detail || 'Errore nella richiesta')
       }
       const result = await response.json()
       console.log('Azione eseguita:', result)
@@ -72,7 +130,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     return (
       <div style={{ padding: '2rem', textAlign: 'center', color: '#F44336' }}>
         <p>Errore: {error}</p>
-        <button 
+        <button
+          type="button"
           onClick={fetchData}
           style={{
             marginTop: '1rem',
@@ -91,12 +150,12 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   }
 
   return (
-    <div style={{ 
-      width: '100%', 
-      minHeight: '100vh', 
-      padding: '2rem', 
-      backgroundColor: '#360185', 
-      color: '#FFFFFF' 
+    <div style={{
+      width: '100%',
+      minHeight: '100vh',
+      padding: '2rem',
+      backgroundColor: '#360185',
+      color: '#FFFFFF'
     }}>
       <h1 style={{ color: '#F4B342', fontSize: '2rem', marginBottom: '2rem' }}>
         Arduino Grow Box - {sensorName}
@@ -107,11 +166,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
           Sensori
         </h2>
-        
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
-          gap: '1.5rem' 
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))',
+          gap: '1.5rem'
         }}>
           {/* Temperatura 1 */}
           <div style={{
@@ -195,11 +254,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
           Controllo Attuatori
         </h2>
-        
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
-          gap: '1.5rem' 
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+          gap: '1.5rem'
         }}>
           {/* Pompa Aspirazione */}
           <div style={{
@@ -211,42 +270,25 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Pompa Aspirazione
             </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                onClick={() => executeAction('pompa_aspirazione_on')}
-                disabled={actionLoading.pompa_aspirazione_on}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#4CAF50',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.pompa_aspirazione_on ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.pompa_aspirazione_on ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.pompa_aspirazione_on ? '...' : 'Accendi'}
-              </button>
-              <button
-                onClick={() => executeAction('pompa_aspirazione_off')}
-                disabled={actionLoading.pompa_aspirazione_off}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#F44336',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.pompa_aspirazione_off ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.pompa_aspirazione_off ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.pompa_aspirazione_off ? '...' : 'Spegni'}
-              </button>
-            </div>
+            <PowerButton
+              label="Pompa Aspirazione"
+              isOn={pompaAspirazioneOn}
+              loading={
+                !!(
+                  actionLoading.pompa_aspirazione_on ||
+                  actionLoading.pompa_aspirazione_off
+                )
+              }
+              onToggle={async () => {
+                if (pompaAspirazioneOn) {
+                  await executeAction('pompa_aspirazione_off')
+                  setPompaAspirazioneOn(false)
+                } else {
+                  await executeAction('pompa_aspirazione_on')
+                  setPompaAspirazioneOn(true)
+                }
+              }}
+            />
           </div>
 
           {/* Pompa Acqua */}
@@ -259,42 +301,25 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Pompa Acqua
             </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                onClick={() => executeAction('pompa_acqua_on')}
-                disabled={actionLoading.pompa_acqua_on}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#4CAF50',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.pompa_acqua_on ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.pompa_acqua_on ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.pompa_acqua_on ? '...' : 'Accendi'}
-              </button>
-              <button
-                onClick={() => executeAction('pompa_acqua_off')}
-                disabled={actionLoading.pompa_acqua_off}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#F44336',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.pompa_acqua_off ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.pompa_acqua_off ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.pompa_acqua_off ? '...' : 'Spegni'}
-              </button>
-            </div>
+            <PowerButton
+              label="Pompa Acqua"
+              isOn={pompaAcquaOn}
+              loading={
+                !!(
+                  actionLoading.pompa_acqua_on ||
+                  actionLoading.pompa_acqua_off
+                )
+              }
+              onToggle={async () => {
+                if (pompaAcquaOn) {
+                  await executeAction('pompa_acqua_off')
+                  setPompaAcquaOn(false)
+                } else {
+                  await executeAction('pompa_acqua_on')
+                  setPompaAcquaOn(true)
+                }
+              }}
+            />
           </div>
 
           {/* Resistenza Scaldante */}
@@ -307,42 +332,25 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Resistenza Scaldante
             </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                onClick={() => executeAction('resistenza_on')}
-                disabled={actionLoading.resistenza_on}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#4CAF50',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.resistenza_on ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.resistenza_on ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.resistenza_on ? '...' : 'Accendi'}
-              </button>
-              <button
-                onClick={() => executeAction('resistenza_off')}
-                disabled={actionLoading.resistenza_off}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#F44336',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.resistenza_off ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.resistenza_off ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.resistenza_off ? '...' : 'Spegni'}
-              </button>
-            </div>
+            <PowerButton
+              label="Resistenza"
+              isOn={resistenzaOn}
+              loading={
+                !!(
+                  actionLoading.resistenza_on ||
+                  actionLoading.resistenza_off
+                )
+              }
+              onToggle={async () => {
+                if (resistenzaOn) {
+                  await executeAction('resistenza_off')
+                  setResistenzaOn(false)
+                } else {
+                  await executeAction('resistenza_on')
+                  setResistenzaOn(true)
+                }
+              }}
+            />
           </div>
 
           {/* Luce LED */}
@@ -355,42 +363,25 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Luce LED
             </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                onClick={() => executeAction('luce_led_on')}
-                disabled={actionLoading.luce_led_on}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#4CAF50',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.luce_led_on ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.luce_led_on ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.luce_led_on ? '...' : 'Accendi'}
-              </button>
-              <button
-                onClick={() => executeAction('luce_led_off')}
-                disabled={actionLoading.luce_led_off}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#F44336',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.luce_led_off ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.luce_led_off ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.luce_led_off ? '...' : 'Spegni'}
-              </button>
-            </div>
+            <PowerButton
+              label="Luce LED"
+              isOn={luceLedOn}
+              loading={
+                !!(
+                  actionLoading.luce_led_on ||
+                  actionLoading.luce_led_off
+                )
+              }
+              onToggle={async () => {
+                if (luceLedOn) {
+                  await executeAction('luce_led_off')
+                  setLuceLedOn(false)
+                } else {
+                  await executeAction('luce_led_on')
+                  setLuceLedOn(true)
+                }
+              }}
+            />
           </div>
 
           {/* Ventola */}
@@ -403,42 +394,25 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             <h3 style={{ color: '#F4B342', marginTop: 0, marginBottom: '1rem' }}>
               Ventola
             </h3>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                onClick={() => executeAction('ventola_on')}
-                disabled={actionLoading.ventola_on}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#4CAF50',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.ventola_on ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.ventola_on ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.ventola_on ? '...' : 'Accendi'}
-              </button>
-              <button
-                onClick={() => executeAction('ventola_off')}
-                disabled={actionLoading.ventola_off}
-                style={{
-                  flex: 1,
-                  padding: '0.75rem',
-                  backgroundColor: '#F44336',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  cursor: actionLoading.ventola_off ? 'not-allowed' : 'pointer',
-                  opacity: actionLoading.ventola_off ? 0.6 : 1,
-                  fontWeight: 'bold'
-                }}
-              >
-                {actionLoading.ventola_off ? '...' : 'Spegni'}
-              </button>
-            </div>
+            <PowerButton
+              label="Ventola"
+              isOn={ventolaOn}
+              loading={
+                !!(
+                  actionLoading.ventola_on ||
+                  actionLoading.ventola_off
+                )
+              }
+              onToggle={async () => {
+                if (ventolaOn) {
+                  await executeAction('ventola_off')
+                  setVentolaOn(false)
+                } else {
+                  await executeAction('ventola_on')
+                  setVentolaOn(true)
+                }
+              }}
+            />
           </div>
         </div>
       </div>
