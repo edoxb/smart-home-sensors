@@ -1,0 +1,12 @@
+{
+  "id": "shelly_1pm_mini_gen3",
+  "name": "Shelly 1 PM Mini Gen 3",
+  "version": "1.0.0",
+  "description": "Interruttore relè con monitoraggio energia (potenza, corrente, tensione) - Gen 3 con API RPC",
+  "template_id": "shelly_1pm_mini_gen3",
+  "frontend_component": "Shelly1PMMiniGen3Control",
+  "protocol": "http",
+  "required_fields": ["name", "ip"],
+  "optional_fields": ["port", "username", "password"]
+}
+
