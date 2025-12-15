@@ -1,0 +1,34 @@
+{
+  "id": "shelly_pro_50em",
+  "name": "Shelly Pro 50EM",
+  "version": "1.0.0",
+  "description": "Monitoraggio energia con due canali di misurazione per Shelly Pro 50EM",
+  "template_id": "shelly_pro_50em",
+  "frontend_component": "ShellyPro50EMControl",
+  "protocol": "mqtt",
+  "required_fields": ["name", "device_id"],
+  "optional_fields": ["mqtt_topic_status", "mqtt_topic_command"],
+  "mqtt_topics": {
+    "status": "<topic_prefix>/status",
+    "events": "<topic_prefix>/events/rpc",
+    "online": "<topic_prefix>/online",
+    "rpc": "<topic_prefix>/rpc",
+    "announce": "shellies/announce"
+  },
+  "data_structure": {
+    "em1:0": {
+      "act_power": "Potenza attiva canale 1 (W)",
+      "voltage": "Tensione canale 1 (V)",
+      "current": "Corrente canale 1 (A)",
+      "power_factor": "Power factor canale 1",
+      "total_act_energy": "Energia totale canale 1 (Wh)"
+    },
+    "em1:1": {
+      "act_power": "Potenza attiva canale 2 (W)",
+      "voltage": "Tensione canale 2 (V)",
+      "current": "Corrente canale 2 (A)",
+      "power_factor": "Power factor canale 2",
+      "total_act_energy": "Energia totale canale 2 (Wh)"
+    }
+  }
+}
