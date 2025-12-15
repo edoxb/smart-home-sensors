@@ -129,7 +129,7 @@ export default function Shelly1PMMiniGen3Control({ sensorName }: Shelly1PMMiniGe
     try {
       const result = await callAPI('/wifi-status', null, 'fetch_wifi_status')
       if (result.data) {
-        setWiFiStatus(result.data)
+        setWifiStatus(result.data)
       }
     } catch (error) {
       console.error('Errore fetch wifi status:', error)
