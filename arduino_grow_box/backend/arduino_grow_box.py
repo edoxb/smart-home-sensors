@@ -131,9 +131,19 @@ async def set_fase(
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
         collection = mongo_client.db.sensor_configs
+
+        updates = {"growth_phase": fase}
+        now = datetime.now()
+        if fase == "fioritura":
+            updates["flowering_start_date"] = now
+            updates["vegetative_start_date"] = None
+        elif fase == "vegetativa":
+            updates["vegetative_start_date"] = now
+            updates["flowering_start_date"] = None
+
         await collection.update_one(
             {"name": sensor_name},
-            {"$set": {"growth_phase": fase}},
+            {"$set": updates},
             upsert=True
         )
         return {"success": True, "fase": fase, "sensor_name": sensor_name}
@@ -275,16 +285,23 @@ async def get_stato_coltivazione(
         avg_temp = None
         avg_hum = None
         try:
+            live_data = {}
             sensor_data = await business_logic.read_sensor_data(sensor_name)
             if sensor_data and sensor_data.data:
-                sensor_data_dict = sensor_data.data
-            elif mongo_client is not None and mongo_client.db is not None:
-                latest = await mongo_client.db.sensor_data.find_one(
+                live_data = sensor_data.data
+
+            latest_data = {}
+            if mongo_client is not None and mongo_client.db is not None:
+                latest_doc = await mongo_client.db.sensor_data.find_one(
                     {"sensor_name": sensor_name},
                     sort=[("timestamp", -1)]
                 )
-                if latest and latest.get("data"):
-                    sensor_data_dict = latest["data"]
+                if latest_doc and latest_doc.get("data"):
+                    latest_data = latest_doc["data"]
+
+            sensor_data_dict = dict(latest_data)
+            sensor_data_dict.update({k: v for k, v in live_data.items() if v is not None})
+
         except Exception as e:
             print(f"⚠️ Errore recupero dati sensore: {e}")
             import traceback; traceback.print_exc()
@@ -464,22 +481,18 @@ async def _handle_piantina_phase(sensor_name: str, data: dict, avg_temp: Optiona
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
-      # Controllo umidità
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa acqua per aumentare umidità (+ ventola per distribuire)
             await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
         elif avg_hum > target_hum_max:
-            # Umidità alta: accendi pompa aspirazione per ridurre umidità (+ ventola per ricambio), spegni pompa acqua
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
-            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
@@ -545,22 +558,18 @@ async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optio
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
-        # Controllo umidità (vegetativa)
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: aumenta → pompa acqua ON, ventola ON, aspirazione OFF
             await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
         elif avg_hum > target_hum_max:
-            # Umidità alta: diminuisce → aspirazione ON, ventola ON, pompa acqua OFF
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
-            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
@@ -589,22 +598,18 @@ async def _handle_fioritura_phase(sensor_name: str, data: dict, avg_temp: Option
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
-        # Controllo umidità (fioritura)
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: aumenta → pompa acqua ON, ventola ON, aspirazione OFF
             await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
         elif avg_hum > target_hum_max:
-            # Umidità alta: diminuisce → aspirazione ON, ventola ON, pompa acqua OFF
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
-            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
