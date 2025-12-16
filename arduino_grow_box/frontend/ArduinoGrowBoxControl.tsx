@@ -174,11 +174,14 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       
       // Aggiorna stato attuatori
       if (result.actuator_states) {
-        setLuceLedOn(result.actuator_states.luce_led || false)
-        setVentolaOn(result.actuator_states.ventola || false)
-        setResistenzaOn(result.actuator_states.resistenza || false)
-        setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione || false)
-        setPompaAcquaOn(result.actuator_states.pompa_acqua || false)
+        console.log('🔌 Stati attuatori ricevuti:', result.actuator_states)
+        setLuceLedOn(result.actuator_states.luce_led === true)
+        setVentolaOn(result.actuator_states.ventola === true)
+        setResistenzaOn(result.actuator_states.resistenza === true)
+        setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione === true)
+        setPompaAcquaOn(result.actuator_states.pompa_acqua === true)
+      } else {
+        console.log('⚠️ Nessuno stato attuatori nella risposta')
       }
       
       // Aggiorna target
@@ -224,11 +227,14 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         }
         // Aggiorna stato attuatori
         if (result.actuator_states) {
-          setLuceLedOn(result.actuator_states.luce_led || false)
-          setVentolaOn(result.actuator_states.ventola || false)
-          setResistenzaOn(result.actuator_states.resistenza || false)
-          setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione || false)
-          setPompaAcquaOn(result.actuator_states.pompa_acqua || false)
+          console.log('🔌 Stati attuatori aggiornati:', result.actuator_states)
+          setLuceLedOn(result.actuator_states.luce_led === true)
+          setVentolaOn(result.actuator_states.ventola === true)
+          setResistenzaOn(result.actuator_states.resistenza === true)
+          setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione === true)
+          setPompaAcquaOn(result.actuator_states.pompa_acqua === true)
+        } else {
+          console.log('⚠️ Nessuno stato attuatori nella risposta (fetchCultivationStatus)')
         }
         // Aggiorna target
         if (result.targets) {

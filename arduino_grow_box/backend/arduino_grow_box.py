@@ -29,39 +29,48 @@ async def _save_actuator_state(sensor_name: str, actuator_name: str, state: bool
     """Salva lo stato di un attuatore nel database"""
     try:
         if mongo_client.db is None:
+            print(f"⚠️ MongoDB non connesso per salvataggio stato attuatore {actuator_name}")
             return
         
         collection = mongo_client.db.sensor_configs
         field_name = f"actuator_{actuator_name}_state"
         
-        await collection.update_one(
+        result = await collection.update_one(
             {"name": sensor_name},
-            {"$set": {field_name: state}},
+            {"$set": {field_name: bool(state)}},
             upsert=True
         )
+        print(f"💾 Stato attuatore salvato: {sensor_name} -> {actuator_name} = {bool(state)} (matched: {result.matched_count}, modified: {result.modified_count})")
     except Exception as e:
-        print(f"Errore salvataggio stato attuatore {actuator_name} per {sensor_name}: {e}")
+        print(f"❌ Errore salvataggio stato attuatore {actuator_name} per {sensor_name}: {e}")
+        import traceback
+        traceback.print_exc()
 
 async def _get_actuator_states(sensor_name: str, mongo_client: MongoClientWrapper) -> Dict[str, bool]:
     """Recupera lo stato di tutti gli attuatori dal database"""
     try:
         if mongo_client.db is None:
+            print(f"⚠️ MongoDB non connesso per lettura stati attuatori {sensor_name}")
             return {}
         
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
         if not config:
+            print(f"⚠️ Configurazione non trovata per sensore {sensor_name}")
             return {}
         
         actuators = {
-            "luce_led": config.get("actuator_luce_led_state", False),
-            "ventola": config.get("actuator_ventola_state", False),
-            "resistenza": config.get("actuator_resistenza_state", False),
-            "pompa_aspirazione": config.get("actuator_pompa_aspirazione_state", False),
-            "pompa_acqua": config.get("actuator_pompa_acqua_state", False)
+            "luce_led": bool(config.get("actuator_luce_led_state", False)),
+            "ventola": bool(config.get("actuator_ventola_state", False)),
+            "resistenza": bool(config.get("actuator_resistenza_state", False)),
+            "pompa_aspirazione": bool(config.get("actuator_pompa_aspirazione_state", False)),
+            "pompa_acqua": bool(config.get("actuator_pompa_acqua_state", False))
         }
+        print(f"🔌 Stati attuatori letti per {sensor_name}: {actuators}")
         return actuators
     except Exception as e:
-        print(f"Errore lettura stato attuatori per {sensor_name}: {e}")
+        print(f"❌ Errore lettura stato attuatori per {sensor_name}: {e}")
+        import traceback
+        traceback.print_exc()
         return {}
 
 async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[MongoClientWrapper], sensor_name: str) -> Dict[str, Any]:
