@@ -124,6 +124,10 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const [resistenzaOn, setResistenzaOn] = useState(false)
   const [luceLedOn, setLuceLedOn] = useState(false)
   const [ventolaOn, setVentolaOn] = useState(false)
+  
+  // stato per la fase di crescita
+  const [fase, setFase] = useState<string | null>(null)
+  const [faseLoading, setFaseLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -152,6 +156,44 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       setLoading(false)
     }
   }, [sensorName])
+
+  // Carica la fase corrente all'avvio
+  const fetchFase = useCallback(async () => {
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase`)
+      if (response.ok) {
+        const result = await response.json()
+        setFase(result.fase || null)
+      }
+    } catch (err) {
+      console.error('Errore caricamento fase:', err)
+    }
+  }, [sensorName])
+
+  // Salva la fase
+  const setFaseHandler = async (nuovaFase: string) => {
+    setFaseLoading(true)
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase?fase=${nuovaFase}`, {
+        method: 'POST'
+      })
+      if (!response.ok) {
+        const errorResp = await response.json()
+        throw new Error(errorResp.detail || 'Errore nel salvataggio della fase')
+      }
+      const result = await response.json()
+      setFase(result.fase)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setFaseLoading(false)
+    }
+  }
+
+  // Carica la fase all'avvio
+  useEffect(() => {
+    fetchFase()
+  }, [fetchFase])
 
   // Polling adattivo: più veloce se ci sono aggiornamenti recenti
   useEffect(() => {
@@ -324,6 +366,60 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       <h1 style={{ color: '#F4B342', fontSize: '2rem', marginBottom: '2rem' }}>
         Arduino Grow Box - {sensorName}
       </h1>
+
+      {/* Sezione Fase di Crescita */}
+      <div style={{ marginBottom: '3rem' }}>
+        <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
+          Fase di Crescita
+        </h2>
+        <div style={{
+          backgroundColor: 'rgba(143, 1, 119, 0.3)',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177',
+          display: 'flex',
+          gap: '1rem',
+          justifyContent: 'center',
+          flexWrap: 'wrap'
+        }}>
+          {(['piantina', 'vegetativa', 'fioritura'] as const).map((faseOption) => (
+            <button
+              key={faseOption}
+              type="button"
+              onClick={() => setFaseHandler(faseOption)}
+              disabled={faseLoading}
+              style={{
+                padding: '1rem 2rem',
+                fontSize: '1.1rem',
+                fontWeight: 'bold',
+                borderRadius: '8px',
+                border: fase === faseOption ? '3px solid #F4B342' : '2px solid #8F0177',
+                backgroundColor: fase === faseOption ? '#F4B342' : 'rgba(143, 1, 119, 0.5)',
+                color: fase === faseOption ? '#1A1A1A' : '#FFFFFF',
+                cursor: faseLoading ? 'not-allowed' : 'pointer',
+                transition: 'all 0.3s ease-in-out',
+                opacity: faseLoading ? 0.7 : 1,
+                textTransform: 'capitalize',
+                boxShadow: fase === faseOption
+                  ? '0 0 15px rgba(244, 179, 66, 0.8)'
+                  : '0 0 5px rgba(0, 0, 0, 0.3)'
+              }}
+            >
+              {faseOption}
+            </button>
+          ))}
+        </div>
+        {fase && (
+          <div style={{
+            marginTop: '1rem',
+            textAlign: 'center',
+            color: '#F4B342',
+            fontSize: '0.9rem'
+          }}>
+            Fase attiva: <strong style={{ textTransform: 'capitalize' }}>{fase}</strong>
+          </div>
+        )}
+      </div>
 
       {/* Sezione Sensori */}
       <div style={{ marginBottom: '3rem' }}>
