@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 
 interface SensorControlProps {
   sensorName: string
@@ -112,6 +112,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  
+  // Polling adattivo: traccia l'ultimo aggiornamento
+  const lastUpdateRef = useRef<number>(Date.now())
+  const lastDataRef = useRef<ArduinoGrowBoxData>({})
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // stato locale per i 5 attuatori
   const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
@@ -120,7 +125,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const [luceLedOn, setLuceLedOn] = useState(false)
   const [ventolaOn, setVentolaOn] = useState(false)
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       setLoading(true)
       const response = await fetch(`/sensors/${sensorName}/data`)
@@ -128,20 +133,75 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         throw new Error(`Errore ${response.status}`)
       }
       const result = await response.json()
-      setData(result.data || {})
+      const newData = result.data || {}
+      
+      // Verifica se i dati sono cambiati
+      const dataChanged = JSON.stringify(newData) !== JSON.stringify(lastDataRef.current)
+      
+      if (dataChanged) {
+        // Dati cambiati: aggiorna il timestamp e usa polling veloce
+        lastUpdateRef.current = Date.now()
+        lastDataRef.current = newData
+      }
+      
+      setData(newData)
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto')
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchData()
-    const interval = setInterval(fetchData, 5000) // Aggiorna ogni 5 secondi
-    return () => clearInterval(interval)
   }, [sensorName])
+
+  // Polling adattivo: più veloce se ci sono aggiornamenti recenti
+  useEffect(() => {
+    let isMounted = true
+    
+    const scheduleNextFetch = async () => {
+      if (!isMounted) return
+      
+      // Cancella il timeout precedente se esiste
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+      
+      const now = Date.now()
+      const timeSinceLastUpdate = now - lastUpdateRef.current
+      
+      // Se ci sono stati aggiornamenti negli ultimi 10 secondi, usa polling veloce (1s)
+      // Altrimenti usa polling lento (5s)
+      const interval = timeSinceLastUpdate < 10000 ? 1000 : 5000
+      
+      timeoutRef.current = setTimeout(async () => {
+        if (!isMounted) return
+        try {
+          await fetchData()
+          if (isMounted) {
+            scheduleNextFetch()
+          }
+        } catch (err) {
+          // In caso di errore, riprova comunque dopo l'intervallo
+          if (isMounted) {
+            scheduleNextFetch()
+          }
+        }
+      }, interval)
+    }
+    
+    // Prima chiamata immediata
+    fetchData().then(() => {
+      if (isMounted) {
+        scheduleNextFetch()
+      }
+    })
+    
+    return () => {
+      isMounted = false
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current)
+      }
+    }
+  }, [sensorName, fetchData])
 
   const executeAction = async (actionName: string) => {
     setActionLoading(prev => ({ ...prev, [actionName]: true }))
