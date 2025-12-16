@@ -200,17 +200,6 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
         <h1 style={{ color: '#F4B342', fontSize: '2rem', margin: 0 }}>
           Shelly Pro 50EM: {sensorName}
         </h1>
-        {error && (
-          <div style={{
-            marginTop: '1rem',
-            padding: '1rem',
-            backgroundColor: '#F44336',
-            borderRadius: '8px',
-            color: '#FFFFFF'
-          }}>
-            Errore: {error}
-          </div>
-        )}
         {loading && (
           <div style={{ marginTop: '1rem', color: '#F4B342' }}>
             Caricamento...
