@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
-from app.dependencies import get_business_logic, get_mongo_client
+from app.dependencies import get_business_logic, get_mongo_client, mongo_client as dep_mongo_client
 from app.services.business_logic import BusinessLogic
 from app.db.mongo_client import MongoClientWrapper
 from typing import Optional, Dict, Any
@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/sensors/arduino-grow-box", tags=["arduino_grow_box"])
 
-_led_state = {}  # {sensor_name: {"is_on": bool, "last_toggle": datetime}}
+_led_state = {}  # {sensor_name: {"is_on": bool, "last_toggle": datetime, "daily_on_seconds": float, "last_reset": datetime}}
 
 async def handle_growbox_automation(sensor_name: str, data: dict, phase: Optional[str]):
     await _handle_growbox_phase_logic(sensor_name, data, phase)
@@ -121,6 +121,68 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
 
     return targets
 
+async def _load_led_state(sensor_name: str, mongo_client: MongoClientWrapper):
+    if sensor_name in _led_state:
+        return _led_state[sensor_name]
+    now = datetime.now()
+    if mongo_client is None or mongo_client.db is None:
+        _led_state[sensor_name] = {
+            "is_on": False,
+            "last_toggle": now,
+            "daily_on_seconds": 0.0,
+            "last_reset": now,
+        }
+        return _led_state[sensor_name]
+    doc = await mongo_client.db.sensor_configs.find_one(
+        {"name": sensor_name},
+        {
+            "led_is_on": 1,
+            "led_last_toggle": 1,
+            "led_daily_on_seconds": 1,
+            "led_last_reset": 1,
+        },
+    )
+    _led_state[sensor_name] = {
+        "is_on": bool(doc.get("led_is_on", False)) if doc else False,
+        "last_toggle": doc.get("led_last_toggle", now) if doc else now,
+        "daily_on_seconds": float(doc.get("led_daily_on_seconds", 0)) if doc else 0.0,
+        "last_reset": doc.get("led_last_reset", now) if doc else now,
+    }
+    return _led_state[sensor_name]
+
+async def _save_led_state(sensor_name: str, state: dict, mongo_client: MongoClientWrapper):
+    _led_state[sensor_name] = state
+    if mongo_client and mongo_client.db:
+        await mongo_client.db.sensor_configs.update_one(
+            {"name": sensor_name},
+            {
+                "$set": {
+                    "led_is_on": state["is_on"],
+                    "led_last_toggle": state["last_toggle"],
+                    "led_daily_on_seconds": state["daily_on_seconds"],
+                    "led_last_reset": state["last_reset"],
+                }
+            },
+            upsert=True,
+        )
+
+def _compute_led_metrics(state: dict, min_hours_per_day: int):
+    now = datetime.now()
+    elapsed = (now - state["last_toggle"]).total_seconds()
+    daily_on = state["daily_on_seconds"] + (elapsed if state["is_on"] else 0)
+    minutes_on = int(daily_on // 60)
+    minutes_until_off = None
+    minutes_until_on = None
+    if state["is_on"]:
+        remaining = max(0, min_hours_per_day * 3600 - daily_on)
+        minutes_until_off = int(remaining // 60)
+    else:
+        off_required = max(0, 24 - min_hours_per_day) * 3600
+        off_elapsed = elapsed
+        remaining = max(0, off_required - off_elapsed)
+        minutes_until_on = int(remaining // 60)
+    return minutes_on, minutes_until_on, minutes_until_off
+
 @router.post("/{sensor_name}/fase")
 async def set_fase(
     sensor_name: str,
@@ -191,7 +253,7 @@ async def inizia_coltivazione(
             },
             upsert=True
         )
-        _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
+        _led_state[sensor_name] = {"is_on": False, "last_toggle": now, "daily_on_seconds": 0.0, "last_reset": now}
         return {
             "success": True,
             "message": "Coltivazione iniziata",
@@ -225,7 +287,11 @@ async def fine_coltivazione(
                     "actuator_ventola_state": "",
                     "actuator_resistenza_state": "",
                     "actuator_pompa_aspirazione_state": "",
-                    "actuator_pompa_acqua_state": ""
+                    "actuator_pompa_acqua_state": "",
+                    "led_is_on": "",
+                    "led_last_toggle": "",
+                    "led_daily_on_seconds": "",
+                    "led_last_reset": "",
                 }
             }
         )
@@ -326,6 +392,11 @@ async def get_stato_coltivazione(
         except Exception:
             pass
 
+        led_state = await _load_led_state(sensor_name, mongo_client)
+        minutes_on, minutes_until_on, minutes_until_off = _compute_led_metrics(
+            led_state, targets.get("min_hours_per_day", 18)
+        )
+
         response = {
             "success": True,
             "cultivation_active": config.get("cultivation_active", False) if config else False,
@@ -340,6 +411,13 @@ async def get_stato_coltivazione(
                 "avg_humidity": avg_hum
             },
             "sensor_data": sensor_data_dict,
+            "led_status": {
+                "is_on": led_state.get("is_on", False),
+                "minutes_on_today": minutes_on,
+                "minutes_until_on": minutes_until_on,
+                "minutes_until_off": minutes_until_off,
+                "last_toggle": led_state.get("last_toggle"),
+            },
             "sensor_name": sensor_name
         }
         print(f"📤 Risposta stato-coltivazione per {sensor_name}: actuator_states={bool(actuator_states)}, targets={bool(targets)}, sensor_data={bool(sensor_data_dict)}")
@@ -387,7 +465,7 @@ async def control_resistenza(
     action_name = f"resistenza_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
-        raise HTTPException(status_code=500, detail=result.error)
+        raise HTTPException(statuscode=500, detail=result.error)
     await _save_actuator_state(sensor_name, "resistenza", action == "on", mongo_client)
     return result
 
@@ -403,10 +481,10 @@ async def control_luce_led(
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
     if result.success:
-        if sensor_name not in _led_state:
-            _led_state[sensor_name] = {"is_on": False, "last_toggle": datetime.now()}
-        _led_state[sensor_name]["is_on"] = (action == "on")
-        _led_state[sensor_name]["last_toggle"] = datetime.now()
+        state = await _load_led_state(sensor_name, mongo_client)
+        state["is_on"] = (action == "on")
+        state["last_toggle"] = datetime.now()
+        await _save_led_state(sensor_name, state, mongo_client)
         await _save_actuator_state(sensor_name, "luce_led", action == "on", mongo_client)
     return result
 
@@ -622,27 +700,40 @@ async def _check_led_state(sensor_name: str) -> bool:
 
 async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
     now = datetime.now()
+    mc = dep_mongo_client
+    state = await _load_led_state(sensor_name, mc)
 
-    if sensor_name not in _led_state:
-        _led_state[sensor_name] = {"is_on": True, "last_toggle": now}
-        await _execute_action_safe(sensor_name, "luce_led_on")
-        print(f"    → Luce LED accesa all'avvio per garantire {min_hours_per_day}h/giorno")
-        return
+    if state["last_reset"].date() != now.date():
+        state["daily_on_seconds"] = 0.0
+        state["last_reset"] = now
+        state["last_toggle"] = now
 
-    state = _led_state[sensor_name]
-    last_toggle = state.get("last_toggle", now)
-    hours_since_toggle = (now - last_toggle).total_seconds() / 3600
+    elapsed = (now - state["last_toggle"]).total_seconds()
 
-    if not state.get("is_on", False):
-        if hours_since_toggle >= (24 - min_hours_per_day):
-            await _execute_action_safe(sensor_name, "luce_led_on")
-            state.update({"is_on": True, "last_toggle": now})
-            print(f"    → Luce LED accesa (minimo {min_hours_per_day}h/giorno)")
-    else:
-        if hours_since_toggle >= min_hours_per_day:
+    if state["is_on"]:
+        on_seconds = state["daily_on_seconds"] + elapsed
+        if on_seconds >= min_hours_per_day * 3600:
             await _execute_action_safe(sensor_name, "luce_led_off")
-            state.update({"is_on": False, "last_toggle": now})
+            state.update({
+                "is_on": False,
+                "last_toggle": now,
+                "daily_on_seconds": min_hours_per_day * 3600
+            })
             print(f"    → Luce LED spenta (raggiunto minimo {min_hours_per_day}h)")
+        else:
+            state["daily_on_seconds"] = on_seconds
+    else:
+        off_required = max(0, 24 - min_hours_per_day) * 3600
+        off_elapsed = elapsed
+        if off_elapsed >= off_required and state["daily_on_seconds"] < min_hours_per_day * 3600:
+            await _execute_action_safe(sensor_name, "luce_led_on")
+            state.update({
+                "is_on": True,
+                "last_toggle": now
+            })
+            print(f"    → Luce LED accesa (minimo {min_hours_per_day}h/giorno)")
+
+    await _save_led_state(sensor_name, state, mc)
 
 async def _execute_action_safe(sensor_name: str, action_name: str):
     try:
