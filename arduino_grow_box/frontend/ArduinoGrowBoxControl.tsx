@@ -128,6 +128,10 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   // stato per la fase di crescita
   const [fase, setFase] = useState<string | null>(null)
   const [faseLoading, setFaseLoading] = useState(false)
+  
+  // stato per la coltivazione
+  const [cultivationActive, setCultivationActive] = useState(false)
+  const [cultivationLoading, setCultivationLoading] = useState(false)
 
   const fetchData = useCallback(async () => {
     try {
@@ -170,6 +174,77 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
   }, [sensorName])
 
+  // Carica lo stato della coltivazione
+  const fetchCultivationStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stato-coltivazione`)
+      if (response.ok) {
+        const result = await response.json()
+        setCultivationActive(result.cultivation_active || false)
+        if (result.growth_phase) {
+          setFase(result.growth_phase)
+        }
+      }
+    } catch (err) {
+      console.error('Errore caricamento stato coltivazione:', err)
+    }
+  }, [sensorName])
+
+  // Inizia coltivazione
+  const iniziaColtivazione = async () => {
+    if (!window.confirm('Vuoi iniziare un nuovo ciclo di coltivazione? Questo imposterà la fase a "piantina".')) {
+      return
+    }
+    
+    setCultivationLoading(true)
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/inizia-coltivazione`, {
+        method: 'POST'
+      })
+      if (!response.ok) {
+        const errorResp = await response.json()
+        throw new Error(errorResp.detail || 'Errore nell\'avvio della coltivazione')
+      }
+      const result = await response.json()
+      setCultivationActive(true)
+      setFase(result.fase)
+      alert('Coltivazione iniziata con successo!')
+      // Ricarica lo stato
+      await fetchCultivationStatus()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setCultivationLoading(false)
+    }
+  }
+
+  // Fine coltivazione
+  const fineColtivazione = async () => {
+    if (!window.confirm('Vuoi terminare il ciclo di coltivazione corrente? Tutti i dati relativi a questo ciclo verranno cancellati e tutti gli attuatori verranno spenti.')) {
+      return
+    }
+    
+    setCultivationLoading(true)
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fine-coltivazione`, {
+        method: 'POST'
+      })
+      if (!response.ok) {
+        const errorResp = await response.json()
+        throw new Error(errorResp.detail || 'Errore nella terminazione della coltivazione')
+      }
+      setCultivationActive(false)
+      setFase(null)
+      alert('Coltivazione terminata. Tutti i dati del ciclo sono stati cancellati.')
+      // Ricarica lo stato
+      await fetchCultivationStatus()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+    } finally {
+      setCultivationLoading(false)
+    }
+  }
+
   // Salva la fase
   const setFaseHandler = async (nuovaFase: string) => {
     setFaseLoading(true)
@@ -190,10 +265,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
   }
 
-  // Carica la fase all'avvio
+  // Carica la fase e lo stato coltivazione all'avvio
   useEffect(() => {
     fetchFase()
-  }, [fetchFase])
+    fetchCultivationStatus()
+  }, [fetchFase, fetchCultivationStatus])
 
   // Polling adattivo: più veloce se ci sono aggiornamenti recenti
   useEffect(() => {
@@ -366,6 +442,84 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       <h1 style={{ color: '#F4B342', fontSize: '2rem', marginBottom: '2rem' }}>
         Arduino Grow Box - {sensorName}
       </h1>
+
+      {/* Sezione Gestione Coltivazione */}
+      <div style={{ marginBottom: '3rem' }}>
+        <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
+          Gestione Coltivazione
+        </h2>
+        <div style={{
+          backgroundColor: 'rgba(143, 1, 119, 0.3)',
+          padding: '1.5rem',
+          borderRadius: '12px',
+          border: '2px solid #8F0177',
+          display: 'flex',
+          gap: '1rem',
+          justifyContent: 'center',
+          flexWrap: 'wrap'
+        }}>
+          <button
+            type="button"
+            onClick={iniziaColtivazione}
+            disabled={cultivationLoading || cultivationActive}
+            style={{
+              padding: '1rem 2rem',
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              borderRadius: '8px',
+              border: '2px solid #4CAF50',
+              backgroundColor: cultivationActive ? 'rgba(76, 175, 80, 0.3)' : '#4CAF50',
+              color: '#FFFFFF',
+              cursor: (cultivationLoading || cultivationActive) ? 'not-allowed' : 'pointer',
+              transition: 'all 0.3s ease-in-out',
+              opacity: (cultivationLoading || cultivationActive) ? 0.7 : 1,
+              boxShadow: cultivationActive ? 'none' : '0 0 10px rgba(76, 175, 80, 0.5)'
+            }}
+          >
+            {cultivationLoading ? 'Caricamento...' : '🌱 Inizia Coltivazione'}
+          </button>
+          <button
+            type="button"
+            onClick={fineColtivazione}
+            disabled={cultivationLoading || !cultivationActive}
+            style={{
+              padding: '1rem 2rem',
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              borderRadius: '8px',
+              border: '2px solid #F44336',
+              backgroundColor: !cultivationActive ? 'rgba(244, 67, 54, 0.3)' : '#F44336',
+              color: '#FFFFFF',
+              cursor: (cultivationLoading || !cultivationActive) ? 'not-allowed' : 'pointer',
+              transition: 'all 0.3s ease-in-out',
+              opacity: (cultivationLoading || !cultivationActive) ? 0.7 : 1,
+              boxShadow: !cultivationActive ? 'none' : '0 0 10px rgba(244, 67, 54, 0.5)'
+            }}
+          >
+            {cultivationLoading ? 'Caricamento...' : '🛑 Fine Coltivazione'}
+          </button>
+        </div>
+        {cultivationActive && (
+          <div style={{
+            marginTop: '1rem',
+            textAlign: 'center',
+            color: '#4CAF50',
+            fontSize: '0.9rem'
+          }}>
+            ✓ Coltivazione attiva
+          </div>
+        )}
+        {!cultivationActive && (
+          <div style={{
+            marginTop: '1rem',
+            textAlign: 'center',
+            color: '#F4B342',
+            fontSize: '0.9rem'
+          }}>
+            ⚠ Nessuna coltivazione attiva
+          </div>
+        )}
+      </div>
 
       {/* Sezione Fase di Crescita */}
       <div style={{ marginBottom: '3rem' }}>
