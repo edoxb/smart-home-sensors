@@ -327,10 +327,22 @@ async def get_stato_coltivazione(
         phase = config.get("growth_phase") if config else None
         
         # Recupera stato attuatori
-        actuator_states = await _get_actuator_states(sensor_name, mongo_client)
+        actuator_states = {}
+        try:
+            actuator_states = await _get_actuator_states(sensor_name, mongo_client)
+        except Exception as e:
+            print(f"⚠️ Errore recupero stati attuatori: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Calcola target in base alla fase
-        targets = await _get_targets_for_phase(phase, mongo_client, sensor_name)
+        targets = {}
+        try:
+            targets = await _get_targets_for_phase(phase, mongo_client, sensor_name)
+        except Exception as e:
+            print(f"⚠️ Errore calcolo target: {e}")
+            import traceback
+            traceback.print_exc()
         
         # Recupera dati sensore completi
         sensor_data_dict = {}
@@ -360,41 +372,35 @@ async def get_stato_coltivazione(
                 valid_hums = [h for h in hums if h is not None]
                 avg_temp = sum(valid_temps) / len(valid_temps) if valid_temps else None
                 avg_hum = sum(valid_hums) / len(valid_hums) if valid_hums else None
-        except:
-            pass
+        except Exception as e:
+            print(f"⚠️ Errore recupero dati sensore: {e}")
+            import traceback
+            traceback.print_exc()
         
-        if config:
-            return {
-                "success": True,
-                "cultivation_active": config.get("cultivation_active", False),
-                "growth_phase": phase,
-                "cultivation_start_date": config.get("cultivation_start_date"),
-                "vegetative_start_date": config.get("vegetative_start_date"),
-                "flowering_start_date": config.get("flowering_start_date"),
-                "actuator_states": actuator_states,
-                "targets": targets,
-                "current_values": {
-                    "avg_temperature": avg_temp,
-                    "avg_humidity": avg_hum
-                },
-                "sensor_data": sensor_data_dict,  # Dati completi del sensore
-                "sensor_name": sensor_name
-            }
-        else:
-            return {
-                "success": True,
-                "cultivation_active": False,
-                "growth_phase": None,
-                "actuator_states": actuator_states,
-                "targets": targets,
-                "current_values": {
-                    "avg_temperature": avg_temp,
-                    "avg_humidity": avg_hum
-                },
-                "sensor_data": sensor_data_dict,  # Dati completi del sensore
-                "sensor_name": sensor_name
-            }
+        # Costruisci risposta sempre con tutti i campi
+        response = {
+            "success": True,
+            "cultivation_active": config.get("cultivation_active", False) if config else False,
+            "growth_phase": phase,
+            "cultivation_start_date": config.get("cultivation_start_date") if config else None,
+            "vegetative_start_date": config.get("vegetative_start_date") if config else None,
+            "flowering_start_date": config.get("flowering_start_date") if config else None,
+            "actuator_states": actuator_states,
+            "targets": targets,
+            "current_values": {
+                "avg_temperature": avg_temp,
+                "avg_humidity": avg_hum
+            },
+            "sensor_data": sensor_data_dict,
+            "sensor_name": sensor_name
+        }
+        
+        print(f"📤 Risposta stato-coltivazione per {sensor_name}: actuator_states={bool(actuator_states)}, targets={bool(targets)}, sensor_data={bool(sensor_data_dict)}")
+        return response
     except Exception as e:
+        print(f"❌ Errore endpoint stato-coltivazione: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
 
 @router.post("/{sensor_name}/pompa-aspirazione")
