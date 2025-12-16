@@ -17,11 +17,6 @@ async def handle_growbox_automation(sensor_name: str, data: dict, phase: Optiona
     """
     Gestisce la logica di automazione per il growbox in base alla fase
     Chiamata da automation_service quando arrivano dati dal sensore growbox
-    
-    Args:
-        sensor_name: Nome del sensore
-        data: Dati del sensore (temperature, humidity, etc.)
-        phase: Fase corrente (piantina, vegetativa, fioritura) o None
     """
     await _handle_growbox_phase_logic(sensor_name, data, phase)
 
@@ -31,10 +26,8 @@ async def _save_actuator_state(sensor_name: str, actuator_name: str, state: bool
         if mongo_client.db is None:
             print(f"⚠️ MongoDB non connesso per salvataggio stato attuatore {actuator_name}")
             return
-        
         collection = mongo_client.db.sensor_configs
         field_name = f"actuator_{actuator_name}_state"
-        
         result = await collection.update_one(
             {"name": sensor_name},
             {"$set": {field_name: bool(state)}},
@@ -52,12 +45,10 @@ async def _get_actuator_states(sensor_name: str, mongo_client: MongoClientWrappe
         if mongo_client.db is None:
             print(f"⚠️ MongoDB non connesso per lettura stati attuatori {sensor_name}")
             return {}
-        
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
         if not config:
             print(f"⚠️ Configurazione non trovata per sensore {sensor_name}")
             return {}
-        
         actuators = {
             "luce_led": bool(config.get("actuator_luce_led_state", False)),
             "ventola": bool(config.get("actuator_ventola_state", False)),
@@ -87,7 +78,7 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
         return targets
 
     weeks_elapsed = 0
-    if mongo_client and mongo_client.db:
+    if mongo_client is not None and mongo_client.db is not None:
         try:
             config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
             if config:
@@ -118,8 +109,8 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
             targets["temp_target_min"] = 20
             targets["temp_target_max"] = 25
         else:
-            targets["temp_target_min"] = 15  # 20-5
-            targets["temp_target_max"] = 21  # 25-4
+            targets["temp_target_min"] = 15
+            targets["temp_target_max"] = 21
         targets["min_hours_per_day"] = 18
 
     elif phase == "vegetativa":
@@ -131,8 +122,8 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
             targets["temp_target_min"] = 22
             targets["temp_target_max"] = 28
         else:
-            targets["temp_target_min"] = 17  # 22-5
-            targets["temp_target_max"] = 24  # 28-4
+            targets["temp_target_min"] = 17
+            targets["temp_target_max"] = 24
         targets["min_hours_per_day"] = 18
 
     elif phase == "fioritura":
@@ -140,7 +131,7 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
         targets["hum_target_max"] = 50
         targets["temp_target_min"] = 20
         targets["temp_target_max"] = 26
-        targets["min_hours_per_day"] = 18  # anche in fioritura garantiamo minimo 18h logica interna
+        targets["min_hours_per_day"] = 18
 
     return targets
 
@@ -154,16 +145,12 @@ async def set_fase(
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
-        
         collection = mongo_client.db.sensor_configs
-        
-        # Usa upsert per creare o aggiornare il documento
-        result = await collection.update_one(
+        await collection.update_one(
             {"name": sensor_name},
             {"$set": {"growth_phase": fase}},
             upsert=True
         )
-        
         return {"success": True, "fase": fase, "sensor_name": sensor_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
@@ -177,7 +164,6 @@ async def get_fase(
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
-        
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
         if config:
             fase = config.get("growth_phase", None)
@@ -197,10 +183,7 @@ async def inizia_coltivazione(
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
-        
         collection = mongo_client.db.sensor_configs
-        
-        # Imposta fase piantina e data inizio coltivazione
         now = datetime.now()
         await collection.update_one(
             {"name": sensor_name},
@@ -215,13 +198,7 @@ async def inizia_coltivazione(
             },
             upsert=True
         )
-        
-        # Resetta lo stato LED
-        if sensor_name in _led_state:
-            _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
-        else:
-            _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
-        
+        _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
         return {
             "success": True,
             "message": "Coltivazione iniziata",
@@ -242,10 +219,7 @@ async def fine_coltivazione(
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
-        
         collection = mongo_client.db.sensor_configs
-        
-        # Rimuovi tutti i dati relativi alla coltivazione
         await collection.update_one(
             {"name": sensor_name},
             {
@@ -263,12 +237,8 @@ async def fine_coltivazione(
                 }
             }
         )
-        
-        # Resetta lo stato LED
         if sensor_name in _led_state:
             del _led_state[sensor_name]
-        
-        # Spegni tutti gli attuatori
         try:
             actions_to_execute = [
                 "luce_led_off",
@@ -281,10 +251,9 @@ async def fine_coltivazione(
                 try:
                     await business_logic.execute_sensor_action(sensor_name, action)
                 except:
-                    pass  # Ignora errori se l'azione non è disponibile
+                    pass
         except:
-            pass  # Ignora errori nella disattivazione degli attuatori
-        
+            pass
         return {
             "success": True,
             "message": "Coltivazione terminata - tutti i dati del ciclo sono stati cancellati",
@@ -303,39 +272,30 @@ async def get_stato_coltivazione(
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
-        
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
         phase = config.get("growth_phase") if config else None
-        
-        # Recupera stato attuatori
+
         actuator_states = {}
         try:
             actuator_states = await _get_actuator_states(sensor_name, mongo_client)
         except Exception as e:
             print(f"⚠️ Errore recupero stati attuatori: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # Calcola target in base alla fase
+            import traceback; traceback.print_exc()
+
         targets = {}
         try:
             targets = await _get_targets_for_phase(phase, mongo_client, sensor_name)
         except Exception as e:
             print(f"⚠️ Errore calcolo target: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # Recupera dati sensore completi
+            import traceback; traceback.print_exc()
+
         sensor_data_dict = {}
         avg_temp = None
         avg_hum = None
         try:
             sensor_data = await business_logic.read_sensor_data(sensor_name)
             if sensor_data and sensor_data.data:
-                # Includi tutti i dati del sensore
                 sensor_data_dict = sensor_data.data
-                
-                # Calcola medie
                 temps = [
                     sensor_data.data.get("temperature_1"),
                     sensor_data.data.get("temperature_2"),
@@ -348,17 +308,14 @@ async def get_stato_coltivazione(
                     sensor_data.data.get("humidity_3"),
                     sensor_data.data.get("humidity_4")
                 ]
-                
                 valid_temps = [t for t in temps if t is not None]
                 valid_hums = [h for h in hums if h is not None]
                 avg_temp = sum(valid_temps) / len(valid_temps) if valid_temps else None
                 avg_hum = sum(valid_hums) / len(valid_hums) if valid_hums else None
         except Exception as e:
             print(f"⚠️ Errore recupero dati sensore: {e}")
-            import traceback
-            traceback.print_exc()
-        
-        # Costruisci risposta sempre con tutti i campi
+            import traceback; traceback.print_exc()
+
         response = {
             "success": True,
             "cultivation_active": config.get("cultivation_active", False) if config else False,
@@ -375,13 +332,11 @@ async def get_stato_coltivazione(
             "sensor_data": sensor_data_dict,
             "sensor_name": sensor_name
         }
-        
         print(f"📤 Risposta stato-coltivazione per {sensor_name}: actuator_states={bool(actuator_states)}, targets={bool(targets)}, sensor_data={bool(sensor_data_dict)}")
         return response
     except Exception as e:
         print(f"❌ Errore endpoint stato-coltivazione: {e}")
-        import traceback
-        traceback.print_exc()
+        import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
 
 @router.post("/{sensor_name}/pompa-aspirazione")
@@ -396,7 +351,6 @@ async def control_pompa_aspirazione(
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Salva stato nel DB
     await _save_actuator_state(sensor_name, "pompa_aspirazione", action == "on", mongo_client)
     return result
 
@@ -412,7 +366,6 @@ async def control_pompa_acqua(
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Salva stato nel DB
     await _save_actuator_state(sensor_name, "pompa_acqua", action == "on", mongo_client)
     return result
 
@@ -428,7 +381,6 @@ async def control_resistenza(
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Salva stato nel DB
     await _save_actuator_state(sensor_name, "resistenza", action == "on", mongo_client)
     return result
 
@@ -444,7 +396,6 @@ async def control_luce_led(
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Aggiorna stato LED locale e nel DB
     if result.success:
         if sensor_name not in _led_state:
             _led_state[sensor_name] = {"is_on": False, "last_toggle": datetime.now()}
@@ -465,25 +416,16 @@ async def control_ventola(
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Salva stato nel DB
     await _save_actuator_state(sensor_name, "ventola", action == "on", mongo_client)
     return result
 
 # Funzione per la logica di automazione delle 3 fasi
 async def _handle_growbox_phase_logic(sensor_name: str, data: dict, phase: Optional[str]):
-    """
-    Logica di automazione specifica per ogni fase di crescita
-    
-    Args:
-        sensor_name: Nome del sensore
-        data: Dati del sensore (temperature, humidity, etc.)
-        phase: Fase corrente (piantina, vegetativa, fioritura) o None
-    """
+    """Logica di automazione specifica per ogni fase di crescita"""
     if not phase:
         print(f"GROWBOX {sensor_name}: Nessuna fase impostata, automazione disabilitata")
         return
-    
-    # Estrai valori dai dati
+
     temps = [
         data.get("temperature_1"),
         data.get("temperature_2"),
@@ -496,18 +438,15 @@ async def _handle_growbox_phase_logic(sensor_name: str, data: dict, phase: Optio
         data.get("humidity_3"),
         data.get("humidity_4")
     ]
-    
-    # Calcola medie (ignora None)
     valid_temps = [t for t in temps if t is not None]
     valid_hums = [h for h in hums if h is not None]
     avg_temp = sum(valid_temps) / len(valid_temps) if valid_temps else None
     avg_hum = sum(valid_hums) / len(valid_hums) if valid_hums else None
-    
+
     print(f"GROWBOX {sensor_name} - Fase: {phase}")
     print(f"  Temperatura media: {avg_temp:.1f}°C" if avg_temp else "  Temperatura: N/A")
     print(f"  Umidità media: {avg_hum:.1f}%" if avg_hum else "  Umidità: N/A")
-    
-    # Logica specifica per fase
+
     if phase == "piantina":
         await _handle_piantina_phase(sensor_name, data, avg_temp, avg_hum)
     elif phase == "vegetativa":
@@ -518,201 +457,151 @@ async def _handle_growbox_phase_logic(sensor_name: str, data: dict, phase: Optio
 async def _handle_piantina_phase(sensor_name: str, data: dict, avg_temp: Optional[float], avg_hum: Optional[float]):
     """Logica automazione fase piantina: 65-70% umidità, 20-25°C con luci accese, 4-5°C in meno con luci spente"""
     print(f"  → FASE PIANTINA: Logica automazione attiva")
-    
-    # Target: 65-70% umidità, 20-25°C con luci accese, 4-5°C in meno con luci spente
+
     target_hum_min = 65
     target_hum_max = 70
     target_temp_led_on_min = 20
     target_temp_led_on_max = 25
-    target_temp_led_off_min = 15  # 20-5
-    target_temp_led_off_max = 21  # 25-4
-    
-    # Controlla stato LED
+    target_temp_led_off_min = 15
+    target_temp_led_off_max = 21
+
     led_on = await _check_led_state(sensor_name)
-    
-    if led_on:
-        target_temp_min = target_temp_led_on_min
-        target_temp_max = target_temp_led_on_max
-    else:
-        target_temp_min = target_temp_led_off_min
-        target_temp_max = target_temp_led_off_max
-    
-    # Controllo temperatura
+    target_temp_min = target_temp_led_on_min if led_on else target_temp_led_off_min
+    target_temp_max = target_temp_led_on_max if led_on else target_temp_led_off_max
+
     if avg_temp is not None:
         if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
             await _execute_action_safe(sensor_name, "resistenza_on")
             print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
         elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
             await _execute_action_safe(sensor_name, "resistenza_off")
             await _execute_action_safe(sensor_name, "ventola_on")
             print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
         else:
-            # Temperatura OK: spegni resistenza
             await _execute_action_safe(sensor_name, "resistenza_off")
-    
-    # Controllo umidità
+
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
         elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
         else:
-            # Umidità OK: spegni pompa aspirazione
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-    
-    # Controllo luce LED: minimo 18 ore al giorno
+
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
 async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optional[float], avg_hum: Optional[float]):
-    """Logica automazione fase vegetativa: umidità che diminuisce del 5% ogni settimana, 22-28°C con luci accese, 4-5°C in meno con luci spente"""
+    """Logica automazione fase vegetativa"""
     print(f"  → FASE VEGETATIVA: Logica automazione attiva")
-    
-    # Recupera data inizio fase vegetativa o coltivazione
+
     mongo_client = None
     try:
         from app.dependencies import mongo_client as mc
         mongo_client = mc
     except:
         pass
-    
+
     weeks_elapsed = 0
-    if mongo_client and mongo_client.db:
+    if mongo_client is not None and mongo_client.db is not None:
         try:
             config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
             if config:
                 start_date = config.get("vegetative_start_date") or config.get("cultivation_start_date")
                 if start_date:
                     if isinstance(start_date, str):
-                        # Prova a parsare la data ISO format
                         try:
                             start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
                         except:
                             try:
-                                # Fallback: formato datetime standard
                                 start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
                             except:
-                                # Se fallisce, usa datetime.now come fallback
                                 start_date = datetime.now()
                     elif isinstance(start_date, datetime):
-                        pass  # Già un datetime
+                        pass
                     else:
                         start_date = datetime.now()
                     weeks_elapsed = (datetime.now() - start_date).days // 7
         except:
             pass
-    
-    # Umidità target: parte da 65% e diminuisce del 5% ogni settimana
+
     base_hum = 65
     hum_reduction = weeks_elapsed * 5
     target_hum_min = max(40, base_hum - hum_reduction)
     target_hum_max = max(45, base_hum - hum_reduction + 5)
-    
-    # Temperatura: 22-28°C con luci accese, 4-5°C in meno con luci spente
+
     target_temp_led_on_min = 22
     target_temp_led_on_max = 28
-    target_temp_led_off_min = 17  # 22-5
-    target_temp_led_off_max = 24  # 28-4
-    
-    # Controlla stato LED
+    target_temp_led_off_min = 17
+    target_temp_led_off_max = 24
+
     led_on = await _check_led_state(sensor_name)
-    
-    if led_on:
-        target_temp_min = target_temp_led_on_min
-        target_temp_max = target_temp_led_on_max
-    else:
-        target_temp_min = target_temp_led_off_min
-        target_temp_max = target_temp_led_off_max
-    
+    target_temp_min = target_temp_led_on_min if led_on else target_temp_led_off_min
+    target_temp_max = target_temp_led_on_max if led_on else target_temp_led_off_max
+
     print(f"    → Settimane trascorse: {weeks_elapsed}, Umidità target: {target_hum_min}-{target_hum_max}%")
-    
-    # Controllo temperatura
+
     if avg_temp is not None:
         if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
             await _execute_action_safe(sensor_name, "resistenza_on")
             print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
         elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
             await _execute_action_safe(sensor_name, "resistenza_off")
             await _execute_action_safe(sensor_name, "ventola_on")
             print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
         else:
-            # Temperatura OK: spegni resistenza
             await _execute_action_safe(sensor_name, "resistenza_off")
-    
-    # Controllo umidità
+
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
         elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
         else:
-            # Umidità OK: spegni pompa aspirazione
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-    
-    # Controllo luce LED: minimo 18 ore al giorno
+
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
 async def _handle_fioritura_phase(sensor_name: str, data: dict, avg_temp: Optional[float], avg_hum: Optional[float]):
-    """Logica automazione fase fioritura: 40-50% umidità, 20-26°C con luci accese"""
+    """Logica automazione fase fioritura"""
     print(f"  → FASE FIORITURA: Logica automazione attiva")
-    
-    # Target: 40-50% umidità, 20-26°C con luci accese
+
     target_hum_min = 40
     target_hum_max = 50
     target_temp_led_on_min = 20
     target_temp_led_on_max = 26
-    
-    # Controlla stato LED
+
     led_on = await _check_led_state(sensor_name)
-    
-    # In fioritura consideriamo solo temperatura con luci accese (non gestiamo luci spente)
     target_temp_min = target_temp_led_on_min
     target_temp_max = target_temp_led_on_max
-    
-    # Controllo temperatura
+
     if avg_temp is not None:
         if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
             await _execute_action_safe(sensor_name, "resistenza_on")
             print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
         elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
             await _execute_action_safe(sensor_name, "resistenza_off")
             await _execute_action_safe(sensor_name, "ventola_on")
             print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
         else:
-            # Temperatura OK: spegni resistenza
             await _execute_action_safe(sensor_name, "resistenza_off")
-    
-    # Controllo umidità
+
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
             await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
             print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
         elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
             print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
         else:
-            # Umidità OK: spegni pompa aspirazione
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-    
-    # Controllo luce LED: minimo 18 ore al giorno
+
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
 async def _check_led_state(sensor_name: str) -> bool:
@@ -724,27 +613,27 @@ async def _check_led_state(sensor_name: str) -> bool:
 async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
     """Gestisce lo schedule della luce LED per garantire minimo 18 ore al giorno"""
     now = datetime.now()
-    
+
+    # Prima inizializzazione: accendi subito la luce
     if sensor_name not in _led_state:
-        _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
-    
+        _led_state[sensor_name] = {"is_on": True, "last_toggle": now}
+        await _execute_action_safe(sensor_name, "luce_led_on")
+        print(f"    → Luce LED accesa all'avvio per garantire {min_hours_per_day}h/giorno")
+        return
+
     state = _led_state[sensor_name]
     last_toggle = state.get("last_toggle", now)
-    
-    # Calcola ore trascorse dall'ultimo toggle
     hours_since_toggle = (now - last_toggle).total_seconds() / 3600
-    
-    # Se la luce è spenta e sono passate più di 6 ore (24-18), accendila
+
     if not state.get("is_on", False):
         if hours_since_toggle >= (24 - min_hours_per_day):
             await _execute_action_safe(sensor_name, "luce_led_on")
-            _led_state[sensor_name] = {"is_on": True, "last_toggle": now}
+            state.update({"is_on": True, "last_toggle": now})
             print(f"    → Luce LED accesa (minimo {min_hours_per_day}h/giorno)")
     else:
-        # Se la luce è accesa e sono passate più di min_hours_per_day ore, spegnila
         if hours_since_toggle >= min_hours_per_day:
             await _execute_action_safe(sensor_name, "luce_led_off")
-            _led_state[sensor_name] = {"is_on": False, "last_toggle": now}
+            state.update({"is_on": False, "last_toggle": now})
             print(f"    → Luce LED spenta (raggiunto minimo {min_hours_per_day}h)")
 
 async def _execute_action_safe(sensor_name: str, action_name: str):
@@ -753,9 +642,7 @@ async def _execute_action_safe(sensor_name: str, action_name: str):
         from app.dependencies import business_logic, mongo_client
         if business_logic:
             result = await business_logic.execute_sensor_action(sensor_name, action_name)
-            # Salva stato attuatore nel DB dopo l'esecuzione
             if result.success and mongo_client:
-                # Estrai nome attuatore dall'action_name (es: "luce_led_on" -> "luce_led")
                 actuator_name = action_name.replace("_on", "").replace("_off", "")
                 state = action_name.endswith("_on")
                 await _save_actuator_state(sensor_name, actuator_name, state, mongo_client)
@@ -763,4 +650,3 @@ async def _execute_action_safe(sensor_name: str, action_name: str):
         print(f"    ⚠ Errore esecuzione azione {action_name} per {sensor_name}: {e}")
 
 # Il gestore viene impostato da automation_service quando necessario
-
