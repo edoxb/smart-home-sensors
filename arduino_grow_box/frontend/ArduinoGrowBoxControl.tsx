@@ -145,6 +145,22 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     avg_humidity?: number | null
   }>({})
 
+  // stato LED
+  const [ledStatus, setLedStatus] = useState<{
+    is_on?: boolean
+    minutes_on_today?: number | null
+    minutes_until_on?: number | null
+    minutes_until_off?: number | null
+    last_toggle?: string | null
+  }>({})
+
+  const formatMinutes = (m?: number | null) => {
+    if (m === null || m === undefined) return 'N/A'
+    const h = Math.floor(m / 60)
+    const mm = m % 60
+    return `${h}h ${mm}m`
+  }
+
   // Funzione unificata per caricare tutti i dati (sensori + stato coltivazione)
   const fetchAllData = useCallback(async () => {
     try {
@@ -189,6 +205,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       // Aggiorna valori correnti
       if (result.current_values) {
         setCurrentValues(result.current_values)
+      }
+
+      // Stato LED
+      if (result.led_status) {
+        setLedStatus(result.led_status)
       }
       
       setError(null)
@@ -241,6 +262,10 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         // Aggiorna anche i dati del sensore se presenti
         if (result.sensor_data) {
           setData(result.sensor_data)
+        }
+        // Stato LED
+        if (result.led_status) {
+          setLedStatus(result.led_status)
         }
       }
     } catch (err) {
@@ -336,47 +361,34 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
   }, [cultivationActive, fetchCultivationStatus])
 
-  // Polling adattivo: più veloce se ci sono aggiornamenti recenti
+  // Polling adattivo
   useEffect(() => {
     let isMounted = true
     
     const scheduleNextFetch = async () => {
       if (!isMounted) return
       
-      // Cancella il timeout precedente se esiste
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
       
       const now = Date.now()
       const timeSinceLastUpdate = now - lastUpdateRef.current
-      
-      // Se ci sono stati aggiornamenti negli ultimi 10 secondi, usa polling veloce (1s)
-      // Altrimenti usa polling lento (5s)
       const interval = timeSinceLastUpdate < 10000 ? 1000 : 5000
       
       timeoutRef.current = setTimeout(async () => {
         if (!isMounted) return
         try {
-          // Usa fetchAllData che carica tutto in una singola richiesta
           await fetchAllData()
-          if (isMounted) {
-            scheduleNextFetch()
-          }
-        } catch (err) {
-          // In caso di errore, riprova comunque dopo l'intervallo
-          if (isMounted) {
-            scheduleNextFetch()
-          }
+          if (isMounted) scheduleNextFetch()
+        } catch {
+          if (isMounted) scheduleNextFetch()
         }
       }, interval)
     }
     
-    // Prima chiamata immediata
     fetchAllData().then(() => {
-      if (isMounted) {
-        scheduleNextFetch()
-      }
+      if (isMounted) scheduleNextFetch()
     })
     
     return () => {
@@ -386,7 +398,6 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       }
     }
   }, [sensorName, fetchAllData])
-
 
   if (loading && Object.keys(data).length === 0) {
     return (
@@ -723,6 +734,32 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 {currentValues.avg_humidity !== null && currentValues.avg_humidity !== undefined
                   ? `${currentValues.avg_humidity.toFixed(1)}%`
                   : 'N/A'}
+              </div>
+            </div>
+
+            {/* Stato Luce LED */}
+            <div style={{
+              padding: '1rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#F4B342', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                Luce LED
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: ledStatus.is_on ? '#4CAF50' : '#F44336' }}>
+                {ledStatus.is_on ? 'ON' : 'OFF'}
+              </div>
+              <div style={{ color: '#FFFFFF', marginTop: '0.5rem' }}>
+                Accesa oggi: {formatMinutes(ledStatus.minutes_on_today)}
+              </div>
+              <div style={{ color: '#FFFFFF', marginTop: '0.25rem' }}>
+                {ledStatus.is_on
+                  ? `Spegne tra: ${formatMinutes(ledStatus.minutes_until_off)}`
+                  : `Si accende tra: ${formatMinutes(ledStatus.minutes_until_on)}`}
+              </div>
+              <div style={{ color: '#BBBBBB', marginTop: '0.25rem', fontSize: '0.85rem' }}>
+                Ultimo toggle: {ledStatus.last_toggle ? new Date(ledStatus.last_toggle).toLocaleString() : 'N/A'}
               </div>
             </div>
           </div>
