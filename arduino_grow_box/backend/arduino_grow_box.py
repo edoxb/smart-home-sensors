@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from app.dependencies import get_business_logic
 from app.services.business_logic import BusinessLogic
 
@@ -7,7 +7,7 @@ router = APIRouter(prefix="/sensors/arduino-grow-box", tags=["arduino_grow_box"]
 @router.post("/{sensor_name}/pompa-aspirazione")
 async def control_pompa_aspirazione(
     sensor_name: str,
-    action: str,  # "on" o "off"
+    action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """Controlla la pompa di aspirazione"""
@@ -20,7 +20,7 @@ async def control_pompa_aspirazione(
 @router.post("/{sensor_name}/pompa-acqua")
 async def control_pompa_acqua(
     sensor_name: str,
-    action: str,
+    action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """Controlla la pompa dell'acqua"""
@@ -33,7 +33,7 @@ async def control_pompa_acqua(
 @router.post("/{sensor_name}/resistenza")
 async def control_resistenza(
     sensor_name: str,
-    action: str,
+    action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """Controlla la resistenza scaldante"""
@@ -46,7 +46,7 @@ async def control_resistenza(
 @router.post("/{sensor_name}/luce-led")
 async def control_luce_led(
     sensor_name: str,
-    action: str,
+    action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """Controlla la luce LED"""
@@ -59,7 +59,7 @@ async def control_luce_led(
 @router.post("/{sensor_name}/ventola")
 async def control_ventola(
     sensor_name: str,
-    action: str,
+    action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
     business_logic: BusinessLogic = Depends(get_business_logic)
 ):
     """Controlla la ventola"""

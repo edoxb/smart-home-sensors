@@ -13,7 +13,6 @@
   "default_config": {
     "protocol": "mqtt",
     "enabled": true,
-    "type": "mqtt",
     "poll_interval": null,
     "mqtt_topic_status": "growbox/{device_id}/sensor/#",
     "mqtt_topic_command": "growbox/{device_id}/command",
