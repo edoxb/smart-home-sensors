@@ -464,16 +464,24 @@ async def _handle_piantina_phase(sensor_name: str, data: dict, avg_temp: Optiona
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
+      # Controllo umidità
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
+            # Umidità bassa: accendi pompa acqua per aumentare umidità (+ ventola per distribuire)
+            await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
+            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
+        elif avg_hum > target_hum_max:
+            # Umidità alta: accendi pompa aspirazione per ridurre umidità (+ ventola per ricambio), spegni pompa acqua
+            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
+            await _execute_action_safe(sensor_name, "ventola_on")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
+            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
+            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
