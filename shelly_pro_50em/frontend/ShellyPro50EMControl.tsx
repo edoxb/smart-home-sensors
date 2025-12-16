@@ -73,18 +73,47 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       console.log('📊 Dati Shelly Pro 50EM:', result)
       
       if (result.success && result.data) {
-        // Estrai e formatta i dati (gestisce sia formato formattato che RPC grezzo)
-        const formattedData = extractShellyData(result.data)
-        setStatus(formattedData)
-      } else {
-        // Se non ci sono dati, mantieni la struttura vuota
-        setStatus({
-          channels: {},
-          energy_data: {},
-          wifi: {},
-          sys: {},
-          device: {},
-          mqtt: {}
+        // Estrai i nuovi dati (parziali)
+        const newData = extractShellyData(result.data)
+        
+        // Fai merge con i dati esistenti invece di sostituirli
+        setStatus(prevStatus => {
+          const merged: StatusData = {
+            channels: { ...prevStatus.channels },
+            energy_data: { ...prevStatus.energy_data },
+            wifi: prevStatus.wifi || {},
+            sys: prevStatus.sys || {},
+            device: prevStatus.device || {},
+            mqtt: prevStatus.mqtt || {},
+            ts: prevStatus.ts
+          }
+
+          // Aggiorna solo i canali presenti nei nuovi dati
+          if (newData.channels) {
+            for (const [channelId, channelData] of Object.entries(newData.channels)) {
+              if (channelData && (channelId === "0" || channelId === "1")) {
+                merged.channels[channelId as "0" | "1"] = channelData
+              }
+            }
+          }
+
+          // Aggiorna solo i dati energia presenti nei nuovi dati
+          if (newData.energy_data) {
+            for (const [energyId, energyData] of Object.entries(newData.energy_data)) {
+              if (energyData && (energyId === "0" || energyId === "1")) {
+                merged.energy_data[energyId as "0" | "1"] = energyData
+              }
+            }
+          }
+
+          // Aggiorna altre informazioni solo se presenti
+          if (newData.wifi) merged.wifi = { ...merged.wifi, ...newData.wifi }
+          if (newData.sys) merged.sys = { ...merged.sys, ...newData.sys }
+          if (newData.device) merged.device = { ...merged.device, ...newData.device }
+          if (newData.mqtt) merged.mqtt = { ...merged.mqtt, ...newData.mqtt }
+          if (newData.ts !== undefined) merged.ts = newData.ts
+
+          return merged
         })
       }
     } catch (error) {
@@ -128,16 +157,22 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
   }
 
   // Funzione per estrarre i dati dal formato RPC Shelly se necessario
-  const extractShellyData = (data: any): StatusData => {
+  // Restituisce solo i dati estratti (parziali), non una struttura completa
+  const extractShellyData = (data: any): Partial<StatusData> => {
+    const extracted: Partial<StatusData> = {
+      channels: {},
+      energy_data: {}
+    }
+
     // Se i dati sono già nel formato corretto (hanno channels e energy_data)
     if (data.channels && data.energy_data) {
       return {
         channels: data.channels || {},
         energy_data: data.energy_data || {},
-        wifi: data.wifi || {},
-        sys: data.sys || {},
-        device: data.device || {},
-        mqtt: data.mqtt || {},
+        wifi: data.wifi,
+        sys: data.sys,
+        device: data.device,
+        mqtt: data.mqtt,
         ts: data.ts
       }
     }
@@ -145,20 +180,88 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
     // Se i dati sono nel formato RPC grezzo (hanno method e params)
     if (data.method && data.params) {
       const params = data.params
-      const formatted: StatusData = {
-        channels: {},
-        energy_data: {},
-        wifi: params.wifi || {},
-        sys: params.sys || {},
-        device: params.device || {},
-        mqtt: params.mqtt || {},
-        ts: params.ts
+
+      // Gestisci NotifyEvent con events array
+      if (data.method === "NotifyEvent" && params.events && Array.isArray(params.events)) {
+        for (const event of params.events) {
+          if (event.component && event.data) {
+            // Gestisci em1data:0 o em1data:1
+            if (event.component.startsWith("em1data:")) {
+              const channelId = event.component.split(":")[1] as "0" | "1" // "0" o "1"
+              const eventData = event.data
+              
+              if (eventData.values && Array.isArray(eventData.values) && eventData.values.length > 0) {
+                const values = eventData.values[0] // Prendi il primo array di valori
+                // Formato values: [total_act_energy, total_act_ret_energy, ..., act_power, ..., voltage, ..., current, ...]
+                // Secondo la documentazione Shelly, per em1data:
+                // [0] = total_act_energy (kWh, da convertire in Wh)
+                // [1] = total_act_ret_energy (kWh, da convertire in Wh)
+                // [4] = act_power (W)
+                // [6] = aprt_power (VA)
+                // [7] = voltage (V)
+                // [11] = current (A)
+                
+                if (!extracted.energy_data) extracted.energy_data = {}
+                extracted.energy_data[channelId] = {
+                  id: event.id || parseInt(channelId),
+                  total_act_energy: values[0] ? values[0] * 1000 : 0, // Converti da kWh a Wh
+                  total_act_ret_energy: values[1] ? values[1] * 1000 : 0
+                }
+
+                // Aggiorna anche i dati del canale se disponibili
+                if (!extracted.channels) extracted.channels = {}
+                if (!extracted.channels[channelId]) {
+                  extracted.channels[channelId] = {
+                    id: event.id || parseInt(channelId),
+                    act_power: 0,
+                    aprt_power: 0,
+                    voltage: 0,
+                    current: 0,
+                    pf: 0,
+                    freq: 0
+                  }
+                }
+                if (values[4] !== undefined) extracted.channels[channelId]!.act_power = values[4]
+                if (values[6] !== undefined) extracted.channels[channelId]!.aprt_power = values[6]
+                if (values[7] !== undefined) extracted.channels[channelId]!.voltage = values[7]
+                if (values[11] !== undefined) extracted.channels[channelId]!.current = values[11]
+              }
+            }
+            // Gestisci em1:0 o em1:1 (se presenti negli eventi)
+            else if (event.component.startsWith("em1:")) {
+              const channelId = event.component.split(":")[1] as "0" | "1"
+              if (event.data && typeof event.data === 'object') {
+                if (!extracted.channels) extracted.channels = {}
+                extracted.channels[channelId] = {
+                  id: event.id || parseInt(channelId),
+                  act_power: event.data.act_power || 0,
+                  aprt_power: event.data.aprt_power || 0,
+                  voltage: event.data.voltage || 0,
+                  current: event.data.current || 0,
+                  pf: event.data.pf || 0,
+                  freq: event.data.freq || 0,
+                  calibration: event.data.calibration
+                }
+              }
+            }
+          }
+        }
+        
+        // Aggiungi altre informazioni se presenti
+        if (params.wifi) extracted.wifi = params.wifi
+        if (params.sys) extracted.sys = params.sys
+        if (params.device) extracted.device = params.device
+        if (params.mqtt) extracted.mqtt = params.mqtt
+        if (params.ts) extracted.ts = params.ts
+        
+        return extracted
       }
 
+      // Gestisci NotifyStatus o altri metodi
       // Estrai canale 0 (em1:0)
       if (params["em1:0"]) {
         const em1_0 = params["em1:0"]
-        formatted.channels["0"] = {
+        extracted.channels!["0"] = {
           id: em1_0.id || 0,
           act_power: em1_0.act_power || 0,
           aprt_power: em1_0.aprt_power || 0,
@@ -173,7 +276,7 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       // Estrai canale 1 (em1:1)
       if (params["em1:1"]) {
         const em1_1 = params["em1:1"]
-        formatted.channels["1"] = {
+        extracted.channels!["1"] = {
           id: em1_1.id || 1,
           act_power: em1_1.act_power || 0,
           aprt_power: em1_1.aprt_power || 0,
@@ -188,7 +291,7 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       // Estrai dati energia 0 (em1data:0)
       if (params["em1data:0"]) {
         const em1data_0 = params["em1data:0"]
-        formatted.energy_data["0"] = {
+        extracted.energy_data!["0"] = {
           id: em1data_0.id || 0,
           total_act_energy: em1data_0.total_act_energy || 0,
           total_act_ret_energy: em1data_0.total_act_ret_energy || 0
@@ -198,14 +301,21 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       // Estrai dati energia 1 (em1data:1)
       if (params["em1data:1"]) {
         const em1data_1 = params["em1data:1"]
-        formatted.energy_data["1"] = {
+        extracted.energy_data!["1"] = {
           id: em1data_1.id || 1,
           total_act_energy: em1data_1.total_act_energy || 0,
           total_act_ret_energy: em1data_1.total_act_ret_energy || 0
         }
       }
 
-      return formatted
+      // Aggiungi altre informazioni se presenti
+      if (params.wifi) extracted.wifi = params.wifi
+      if (params.sys) extracted.sys = params.sys
+      if (params.device) extracted.device = params.device
+      if (params.mqtt) extracted.mqtt = params.mqtt
+      if (params.ts) extracted.ts = params.ts
+
+      return extracted
     }
 
     // Se i dati sono già solo params (senza method)
