@@ -66,8 +66,11 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       }
       
       // Crea nuova connessione SSE
+      // Usa URL relativo (nginx proxy) o localhost:8000 per sviluppo
+      const isDevelopment = window.location.hostname === 'localhost' && window.location.port !== '80' && window.location.port !== ''
+      const apiUrl = isDevelopment ? 'http://localhost:8000' : ''
       eventSource = new EventSource(
-        `http://localhost:8000/sensors/shelly-pro-50em/events?sensor_name=${encodeURIComponent(sensorName)}`
+        `${apiUrl}/sensors/shelly-pro-50em/events?sensor_name=${encodeURIComponent(sensorName)}`
       )
       
       eventSource.onopen = () => {
