@@ -73,17 +73,9 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       console.log('📊 Dati Shelly Pro 50EM:', result)
       
       if (result.success && result.data) {
-        // Assicurati che la struttura dati sia corretta
-        const safeData = {
-          channels: result.data.channels || {},
-          energy_data: result.data.energy_data || {},
-          wifi: result.data.wifi || {},
-          sys: result.data.sys || {},
-          device: result.data.device || {},
-          mqtt: result.data.mqtt || {},
-          ts: result.data.ts
-        }
-        setStatus(safeData)
+        // Estrai e formatta i dati (gestisce sia formato formattato che RPC grezzo)
+        const formattedData = extractShellyData(result.data)
+        setStatus(formattedData)
       } else {
         // Se non ci sono dati, mantieni la struttura vuota
         setStatus({
@@ -133,6 +125,159 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       return `${(wh / 1000).toFixed(2)} kWh`
     }
     return `${wh.toFixed(0)} Wh`
+  }
+
+  // Funzione per estrarre i dati dal formato RPC Shelly se necessario
+  const extractShellyData = (data: any): StatusData => {
+    // Se i dati sono già nel formato corretto (hanno channels e energy_data)
+    if (data.channels && data.energy_data) {
+      return {
+        channels: data.channels || {},
+        energy_data: data.energy_data || {},
+        wifi: data.wifi || {},
+        sys: data.sys || {},
+        device: data.device || {},
+        mqtt: data.mqtt || {},
+        ts: data.ts
+      }
+    }
+
+    // Se i dati sono nel formato RPC grezzo (hanno method e params)
+    if (data.method && data.params) {
+      const params = data.params
+      const formatted: StatusData = {
+        channels: {},
+        energy_data: {},
+        wifi: params.wifi || {},
+        sys: params.sys || {},
+        device: params.device || {},
+        mqtt: params.mqtt || {},
+        ts: params.ts
+      }
+
+      // Estrai canale 0 (em1:0)
+      if (params["em1:0"]) {
+        const em1_0 = params["em1:0"]
+        formatted.channels["0"] = {
+          id: em1_0.id || 0,
+          act_power: em1_0.act_power || 0,
+          aprt_power: em1_0.aprt_power || 0,
+          voltage: em1_0.voltage || 0,
+          current: em1_0.current || 0,
+          pf: em1_0.pf || 0,
+          freq: em1_0.freq || 0,
+          calibration: em1_0.calibration
+        }
+      }
+
+      // Estrai canale 1 (em1:1)
+      if (params["em1:1"]) {
+        const em1_1 = params["em1:1"]
+        formatted.channels["1"] = {
+          id: em1_1.id || 1,
+          act_power: em1_1.act_power || 0,
+          aprt_power: em1_1.aprt_power || 0,
+          voltage: em1_1.voltage || 0,
+          current: em1_1.current || 0,
+          pf: em1_1.pf || 0,
+          freq: em1_1.freq || 0,
+          calibration: em1_1.calibration
+        }
+      }
+
+      // Estrai dati energia 0 (em1data:0)
+      if (params["em1data:0"]) {
+        const em1data_0 = params["em1data:0"]
+        formatted.energy_data["0"] = {
+          id: em1data_0.id || 0,
+          total_act_energy: em1data_0.total_act_energy || 0,
+          total_act_ret_energy: em1data_0.total_act_ret_energy || 0
+        }
+      }
+
+      // Estrai dati energia 1 (em1data:1)
+      if (params["em1data:1"]) {
+        const em1data_1 = params["em1data:1"]
+        formatted.energy_data["1"] = {
+          id: em1data_1.id || 1,
+          total_act_energy: em1data_1.total_act_energy || 0,
+          total_act_ret_energy: em1data_1.total_act_ret_energy || 0
+        }
+      }
+
+      return formatted
+    }
+
+    // Se i dati sono già solo params (senza method)
+    if (data["em1:0"] || data["em1:1"]) {
+      const formatted: StatusData = {
+        channels: {},
+        energy_data: {},
+        wifi: data.wifi || {},
+        sys: data.sys || {},
+        device: data.device || {},
+        mqtt: data.mqtt || {},
+        ts: data.ts
+      }
+
+      if (data["em1:0"]) {
+        const em1_0 = data["em1:0"]
+        formatted.channels["0"] = {
+          id: em1_0.id || 0,
+          act_power: em1_0.act_power || 0,
+          aprt_power: em1_0.aprt_power || 0,
+          voltage: em1_0.voltage || 0,
+          current: em1_0.current || 0,
+          pf: em1_0.pf || 0,
+          freq: em1_0.freq || 0,
+          calibration: em1_0.calibration
+        }
+      }
+
+      if (data["em1:1"]) {
+        const em1_1 = data["em1:1"]
+        formatted.channels["1"] = {
+          id: em1_1.id || 1,
+          act_power: em1_1.act_power || 0,
+          aprt_power: em1_1.aprt_power || 0,
+          voltage: em1_1.voltage || 0,
+          current: em1_1.current || 0,
+          pf: em1_1.pf || 0,
+          freq: em1_1.freq || 0,
+          calibration: em1_1.calibration
+        }
+      }
+
+      if (data["em1data:0"]) {
+        const em1data_0 = data["em1data:0"]
+        formatted.energy_data["0"] = {
+          id: em1data_0.id || 0,
+          total_act_energy: em1data_0.total_act_energy || 0,
+          total_act_ret_energy: em1data_0.total_act_ret_energy || 0
+        }
+      }
+
+      if (data["em1data:1"]) {
+        const em1data_1 = data["em1data:1"]
+        formatted.energy_data["1"] = {
+          id: em1data_1.id || 1,
+          total_act_energy: em1data_1.total_act_energy || 0,
+          total_act_ret_energy: em1data_1.total_act_ret_energy || 0
+        }
+      }
+
+      return formatted
+    }
+
+    // Fallback: restituisci struttura vuota
+    return {
+      channels: {},
+      energy_data: {},
+      wifi: {},
+      sys: {},
+      device: {},
+      mqtt: {}
+    }
   }
 
   // Estrai i dati con controlli di sicurezza
