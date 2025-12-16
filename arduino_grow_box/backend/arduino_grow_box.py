@@ -545,16 +545,24 @@ async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optio
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
+        # Controllo umidità (vegetativa)
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
+            # Umidità bassa: aumenta → pompa acqua ON, ventola ON, aspirazione OFF
+            await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
+            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
+        elif avg_hum > target_hum_max:
+            # Umidità alta: diminuisce → aspirazione ON, ventola ON, pompa acqua OFF
+            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
+            await _execute_action_safe(sensor_name, "ventola_on")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
+            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
+            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
@@ -581,16 +589,24 @@ async def _handle_fioritura_phase(sensor_name: str, data: dict, avg_temp: Option
         else:
             await _execute_action_safe(sensor_name, "resistenza_off")
 
+        # Controllo umidità (fioritura)
     if avg_hum is not None:
         if avg_hum < target_hum_min:
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
+            # Umidità bassa: aumenta → pompa acqua ON, ventola ON, aspirazione OFF
+            await _execute_action_safe(sensor_name, "pompa_acqua_on")
             await _execute_action_safe(sensor_name, "ventola_on")
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
+            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua (+ ventola)")
+        elif avg_hum > target_hum_max:
+            # Umidità alta: diminuisce → aspirazione ON, ventola ON, pompa acqua OFF
+            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
+            await _execute_action_safe(sensor_name, "ventola_on")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
+            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa pompa aspirazione (+ ventola)")
         else:
+            # Umidità OK: spegni entrambe le pompe
             await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
 
     await _manage_led_schedule(sensor_name, min_hours_per_day=18)
 
