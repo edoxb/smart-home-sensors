@@ -361,34 +361,47 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
   }, [cultivationActive, fetchCultivationStatus])
 
-  // Polling adattivo
+  // Polling adattivo: più veloce se ci sono aggiornamenti recenti
   useEffect(() => {
     let isMounted = true
     
     const scheduleNextFetch = async () => {
       if (!isMounted) return
       
+      // Cancella il timeout precedente se esiste
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current)
       }
       
       const now = Date.now()
       const timeSinceLastUpdate = now - lastUpdateRef.current
+      
+      // Se ci sono stati aggiornamenti negli ultimi 10 secondi, usa polling veloce (1s)
+      // Altrimenti usa polling lento (5s)
       const interval = timeSinceLastUpdate < 10000 ? 1000 : 5000
       
       timeoutRef.current = setTimeout(async () => {
         if (!isMounted) return
         try {
+          // Usa fetchAllData che carica tutto in una singola richiesta
           await fetchAllData()
-          if (isMounted) scheduleNextFetch()
-        } catch {
-          if (isMounted) scheduleNextFetch()
+          if (isMounted) {
+            scheduleNextFetch()
+          }
+        } catch (err) {
+          // In caso di errore, riprova comunque dopo l'intervallo
+          if (isMounted) {
+            scheduleNextFetch()
+          }
         }
       }, interval)
     }
     
+    // Prima chiamata immediata
     fetchAllData().then(() => {
-      if (isMounted) scheduleNextFetch()
+      if (isMounted) {
+        scheduleNextFetch()
+      }
     })
     
     return () => {
@@ -398,6 +411,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       }
     }
   }, [sensorName, fetchAllData])
+
 
   if (loading && Object.keys(data).length === 0) {
     return (
