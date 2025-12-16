@@ -29,35 +29,21 @@ async def set_fase(
 ):
     """Salva la fase di crescita nel database (sovrascrive il valore precedente)"""
     try:
-        # Salva la fase nella configurazione del sensore
-        success = await mongo_client.update_sensor_config(
-            sensor_name,
-            {"growth_phase": fase}
+        if not mongo_client.db:
+            raise HTTPException(status_code=500, detail="Database non connesso")
+        
+        collection = mongo_client.db.sensor_configs
+        
+        # Usa upsert per creare o aggiornare il documento
+        result = await collection.update_one(
+            {"name": sensor_name},
+            {"$set": {"growth_phase": fase}},
+            upsert=True
         )
         
-        if not success:
-            # Se il sensore non esiste nella config, crea un documento minimo
-            from app.models import SensorConfig
-            config = SensorConfig(
-                name=sensor_name,
-                type="mqtt",  # Tipo di default
-                ip="",  # Non necessario per MQTT
-                enabled=True
-            )
-            config_dict = config.dict()
-            config_dict["growth_phase"] = fase
-            
-            if mongo_client.db:
-                await mongo_client.db.sensor_configs.insert_one(config_dict)
-                success = True
-        
-        if success:
-            return {"success": True, "fase": fase, "sensor_name": sensor_name}
-        else:
-            raise HTTPException(status_code=500, detail="Errore nel salvataggio della fase")
+        return {"success": True, "fase": fase, "sensor_name": sensor_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
-
 @router.get("/{sensor_name}/fase")
 async def get_fase(
     sensor_name: str,
