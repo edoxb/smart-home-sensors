@@ -56,109 +56,128 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
   })
   const [error, setError] = useState<string | null>(null)
 
-  const fetchStatus = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const response = await fetch(
-        `http://localhost:8000/sensors/shelly-pro-50em/status?sensor_name=${encodeURIComponent(sensorName)}`
+  useEffect(() => {
+    let eventSource: EventSource | null = null
+    
+    const connectSSE = () => {
+      // Chiudi connessione esistente se presente
+      if (eventSource) {
+        eventSource.close()
+      }
+      
+      // Crea nuova connessione SSE
+      eventSource = new EventSource(
+        `http://localhost:8000/sensors/shelly-pro-50em/events?sensor_name=${encodeURIComponent(sensorName)}`
       )
       
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Errore nella richiesta')
+      eventSource.onopen = () => {
+        console.log('✅ Connessione SSE aperta per', sensorName)
+        setError(null)
+        setLoading(false)
       }
       
-      const result = await response.json()
-      console.log('📊 Dati Shelly Pro 50EM:', result)
+      eventSource.onmessage = (event) => {
+        try {
+          const result = JSON.parse(event.data)
+          
+          // Ignora heartbeat
+          if (result.type === 'heartbeat') {
+            return
+          }
+          
+          console.log('📊 Dati Shelly Pro 50EM (SSE):', result)
+          
+          if (result.success && result.data) {
+            // Estrai i nuovi dati (parziali)
+            const newData = extractShellyData(result.data)
+            
+            // Fai merge con i dati esistenti
+            setStatus(prevStatus => {
+              const merged: StatusData = {
+                channels: {
+                  "0": prevStatus.channels?.["0"] ? { ...prevStatus.channels["0"] } : undefined,
+                  "1": prevStatus.channels?.["1"] ? { ...prevStatus.channels["1"] } : undefined
+                },
+                energy_data: {
+                  "0": prevStatus.energy_data?.["0"] ? { ...prevStatus.energy_data["0"] } : undefined,
+                  "1": prevStatus.energy_data?.["1"] ? { ...prevStatus.energy_data["1"] } : undefined
+                },
+                wifi: prevStatus.wifi ? { ...prevStatus.wifi } : {},
+                sys: prevStatus.sys ? { ...prevStatus.sys } : {},
+                device: prevStatus.device ? { ...prevStatus.device } : {},
+                mqtt: prevStatus.mqtt ? { ...prevStatus.mqtt } : {},
+                ts: prevStatus.ts
+              }
+              
+              // Aggiorna solo i canali presenti nei nuovi dati
+              if (newData.channels && Object.keys(newData.channels).length > 0) {
+                for (const [channelId, channelData] of Object.entries(newData.channels)) {
+                  if (channelData && (channelId === "0" || channelId === "1")) {
+                    merged.channels[channelId as "0" | "1"] = { ...channelData }
+                  }
+                }
+              }
+              
+              // Aggiorna solo i dati energia presenti nei nuovi dati
+              if (newData.energy_data && Object.keys(newData.energy_data).length > 0) {
+                for (const [energyId, energyData] of Object.entries(newData.energy_data)) {
+                  if (energyData && (energyId === "0" || energyId === "1")) {
+                    merged.energy_data[energyId as "0" | "1"] = { ...energyData }
+                  }
+                }
+              }
+              
+              // Aggiorna altre informazioni
+              if (newData.wifi && Object.keys(newData.wifi).length > 0) {
+                merged.wifi = { ...merged.wifi, ...newData.wifi }
+              }
+              if (newData.sys && Object.keys(newData.sys).length > 0) {
+                merged.sys = { ...merged.sys, ...newData.sys }
+              }
+              if (newData.device && Object.keys(newData.device).length > 0) {
+                merged.device = { ...merged.device, ...newData.device }
+              }
+              if (newData.mqtt && Object.keys(newData.mqtt).length > 0) {
+                merged.mqtt = { ...merged.mqtt, ...newData.mqtt }
+              }
+              if (newData.ts !== undefined) {
+                merged.ts = newData.ts
+              }
+              
+              return merged
+            })
+          }
+        } catch (error) {
+          console.error('Errore parsing dati SSE:', error)
+        }
+      }
       
-      if (result.success && result.data) {
-        // Estrai i nuovi dati (parziali)
-        const newData = extractShellyData(result.data)
+      eventSource.onerror = (error) => {
+        console.error('Errore connessione SSE:', error)
+        setError('Errore connessione in tempo reale')
+        setLoading(false)
         
-        // Fai merge con i dati esistenti invece di sostituirli
-        setStatus(prevStatus => {
-          // Crea una copia profonda dei dati esistenti per preservarli
-          const merged: StatusData = {
-            channels: {
-              "0": prevStatus.channels?.["0"] ? { ...prevStatus.channels["0"] } : undefined,
-              "1": prevStatus.channels?.["1"] ? { ...prevStatus.channels["1"] } : undefined
-            },
-            energy_data: {
-              "0": prevStatus.energy_data?.["0"] ? { ...prevStatus.energy_data["0"] } : undefined,
-              "1": prevStatus.energy_data?.["1"] ? { ...prevStatus.energy_data["1"] } : undefined
-            },
-            wifi: prevStatus.wifi ? { ...prevStatus.wifi } : {},
-            sys: prevStatus.sys ? { ...prevStatus.sys } : {},
-            device: prevStatus.device ? { ...prevStatus.device } : {},
-            mqtt: prevStatus.mqtt ? { ...prevStatus.mqtt } : {},
-            ts: prevStatus.ts
+        // Riconnessione automatica dopo 3 secondi
+        setTimeout(() => {
+          if (eventSource?.readyState === EventSource.CLOSED) {
+            console.log('🔄 Tentativo riconnessione SSE...')
+            connectSSE()
           }
-
-          // Aggiorna solo i canali presenti nei nuovi dati (solo se hanno effettivamente dati)
-          if (newData.channels && Object.keys(newData.channels).length > 0) {
-            for (const [channelId, channelData] of Object.entries(newData.channels)) {
-              if (channelData && (channelId === "0" || channelId === "1")) {
-                // Sovrascrivi solo il canale specifico, mantenendo gli altri
-                merged.channels[channelId as "0" | "1"] = { ...channelData }
-              }
-            }
-          }
-
-          // Aggiorna solo i dati energia presenti nei nuovi dati (solo se hanno effettivamente dati)
-          if (newData.energy_data && Object.keys(newData.energy_data).length > 0) {
-            for (const [energyId, energyData] of Object.entries(newData.energy_data)) {
-              if (energyData && (energyId === "0" || energyId === "1")) {
-                // Sovrascrivi solo il dato energia specifico, mantenendo gli altri
-                merged.energy_data[energyId as "0" | "1"] = { ...energyData }
-              }
-            }
-          }
-
-          // Aggiorna altre informazioni solo se presenti e non vuote
-          if (newData.wifi && Object.keys(newData.wifi).length > 0) {
-            merged.wifi = { ...merged.wifi, ...newData.wifi }
-          }
-          if (newData.sys && Object.keys(newData.sys).length > 0) {
-            merged.sys = { ...merged.sys, ...newData.sys }
-          }
-          if (newData.device && Object.keys(newData.device).length > 0) {
-            merged.device = { ...merged.device, ...newData.device }
-          }
-          if (newData.mqtt && Object.keys(newData.mqtt).length > 0) {
-            merged.mqtt = { ...merged.mqtt, ...newData.mqtt }
-          }
-          if (newData.ts !== undefined) {
-            merged.ts = newData.ts
-          }
-
-          return merged
-        })
+        }, 3000)
       }
-    } catch (error) {
-      console.error('Errore fetch status:', error)
-      setError(error instanceof Error ? error.message : 'Errore sconosciuto')
-    } finally {
-      setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    // Esegui subito il fetch
-    fetchStatus().catch(err => {
-      console.error('Errore nel fetch iniziale:', err)
-      setError('Errore nel caricamento dei dati')
-    })
     
-    // Aggiorna ogni 5 secondi
-    const interval = setInterval(() => {
-      fetchStatus().catch(err => {
-        console.error('Errore nel fetch periodico:', err)
-        // Non impostare error per i fetch periodici, solo log
-      })
-    }, 5000)
+    // Connetti
+    setLoading(true)
+    connectSSE()
     
-    return () => clearInterval(interval)
+    // Cleanup
+    return () => {
+      if (eventSource) {
+        eventSource.close()
+        eventSource = null
+      }
+    }
   }, [sensorName])
 
   const getPowerColor = (power?: number) => {

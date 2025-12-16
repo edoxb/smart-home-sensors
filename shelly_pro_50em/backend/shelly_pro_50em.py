@@ -1,9 +1,12 @@
 from fastapi import APIRouter, HTTPException, Depends, Query, Body
+from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any
+from datetime import datetime
+import asyncio
+import json
 from app.services.business_logic import BusinessLogic
 from app.dependencies import get_business_logic
 from app.protocols.mqtt_protocol import MQTTProtocol
-import json
 
 
 def _extract_shelly_pro_50em_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -105,6 +108,9 @@ router = APIRouter(prefix="/sensors/shelly-pro-50em", tags=["shelly-pro-50em"])
 
 # Cache per aggregare i dati nel tempo (per gestire messaggi parziali)
 _sensor_data_cache: Dict[str, Dict[str, Any]] = {}
+
+# Dizionario per gestire le connessioni SSE per sensore
+_sse_connections: Dict[str, list] = {}
 
 @router.get("/status")
 async def get_status(
@@ -306,5 +312,184 @@ async def get_device_info(
         "data": {},
         "message": "Informazioni dispositivo non disponibili"
     }
+
+
+@router.get("/events")
+async def stream_events(
+    sensor_name: str = Query(..., description="Nome del sensore"),
+    business_logic: BusinessLogic = Depends(get_business_logic)
+):
+    """
+    Endpoint SSE per ricevere aggiornamenti in tempo reale dal sensore Shelly Pro 50EM.
+    Invia i dati ogni volta che arrivano nuovi messaggi MQTT.
+    """
+    if sensor_name not in business_logic.sensors:
+        raise HTTPException(status_code=404, detail=f"Sensore '{sensor_name}' non trovato")
+    
+    sensor = business_logic.sensors[sensor_name]
+    
+    if not isinstance(sensor.protocol, MQTTProtocol):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Il sensore '{sensor_name}' non usa il protocollo MQTT"
+        )
+    
+    async def event_generator():
+        # Inizializza la lista di connessioni per questo sensore
+        if sensor_name not in _sse_connections:
+            _sse_connections[sensor_name] = []
+        
+        # Coda per i messaggi da inviare
+        message_queue = asyncio.Queue()
+        _sse_connections[sensor_name].append(message_queue)
+        
+        try:
+            # Invia i dati iniziali dalla cache se disponibili
+            if sensor_name in _sensor_data_cache:
+                cached_data = _sensor_data_cache[sensor_name]
+                await message_queue.put({
+                    "success": True,
+                    "data": cached_data.copy(),
+                    "timestamp": datetime.now().isoformat()
+                })
+            else:
+                # Prova a leggere i dati attuali
+                data = await business_logic.read_sensor_data(sensor_name)
+                if data and data.data:
+                    new_formatted_data = _extract_shelly_pro_50em_data(data.data)
+                    
+                    # Aggrega con la cache
+                    if sensor_name not in _sensor_data_cache:
+                        _sensor_data_cache[sensor_name] = {
+                            "channels": {},
+                            "energy_data": {},
+                            "wifi": {},
+                            "sys": {},
+                            "device": {},
+                            "mqtt": {},
+                            "ts": None
+                        }
+                    
+                    cached_data = _sensor_data_cache[sensor_name]
+                    
+                    if new_formatted_data.get("channels"):
+                        for channel_id, channel_data in new_formatted_data["channels"].items():
+                            cached_data["channels"][channel_id] = channel_data
+                    
+                    if new_formatted_data.get("energy_data"):
+                        for energy_id, energy_data in new_formatted_data["energy_data"].items():
+                            cached_data["energy_data"][energy_id] = energy_data
+                    
+                    if new_formatted_data.get("wifi"):
+                        cached_data["wifi"] = new_formatted_data["wifi"]
+                    if new_formatted_data.get("sys"):
+                        cached_data["sys"] = new_formatted_data["sys"]
+                    if new_formatted_data.get("device"):
+                        cached_data["device"] = new_formatted_data["device"]
+                    if new_formatted_data.get("mqtt"):
+                        cached_data["mqtt"] = new_formatted_data["mqtt"]
+                    if new_formatted_data.get("ts"):
+                        cached_data["ts"] = new_formatted_data["ts"]
+                    
+                    # Invia dati iniziali
+                    await message_queue.put({
+                        "success": True,
+                        "data": cached_data.copy(),
+                        "timestamp": data.timestamp.isoformat() if data.timestamp else None
+                    })
+            
+            # Loop per inviare messaggi
+            while True:
+                try:
+                    # Attendi un messaggio con timeout per inviare heartbeat
+                    try:
+                        message = await asyncio.wait_for(message_queue.get(), timeout=30.0)
+                    except asyncio.TimeoutError:
+                        # Invia heartbeat per mantenere la connessione viva
+                        yield f"data: {json.dumps({'type': 'heartbeat'})}\n\n"
+                        continue
+                    
+                    # Invia il messaggio
+                    yield f"data: {json.dumps(message)}\n\n"
+                    
+                except asyncio.CancelledError:
+                    break
+                except Exception as e:
+                    print(f"Errore nella generazione eventi SSE per {sensor_name}: {e}")
+                    break
+                    
+        finally:
+            # Rimuovi la connessione quando il client si disconnette
+            if sensor_name in _sse_connections:
+                try:
+                    _sse_connections[sensor_name].remove(message_queue)
+                except ValueError:
+                    pass
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disabilita buffering nginx
+        }
+    )
+
+
+async def notify_sse_clients(sensor_name: str, formatted_data: Dict[str, Any]):
+    """Notifica tutti i client SSE connessi per un sensore quando arrivano nuovi dati MQTT"""
+    if sensor_name not in _sse_connections:
+        return
+    
+    # Aggrega i nuovi dati con la cache esistente
+    if sensor_name not in _sensor_data_cache:
+        _sensor_data_cache[sensor_name] = {
+            "channels": {},
+            "energy_data": {},
+            "wifi": {},
+            "sys": {},
+            "device": {},
+            "mqtt": {},
+            "ts": None
+        }
+    
+    cached_data = _sensor_data_cache[sensor_name]
+    
+    # Aggiorna i canali solo se presenti nel nuovo messaggio
+    if formatted_data.get("channels"):
+        for channel_id, channel_data in formatted_data["channels"].items():
+            cached_data["channels"][channel_id] = channel_data
+    
+    # Aggiorna i dati energia solo se presenti nel nuovo messaggio
+    if formatted_data.get("energy_data"):
+        for energy_id, energy_data in formatted_data["energy_data"].items():
+            cached_data["energy_data"][energy_id] = energy_data
+    
+    # Aggiorna le altre informazioni se presenti
+    if formatted_data.get("wifi"):
+        cached_data["wifi"] = formatted_data["wifi"]
+    if formatted_data.get("sys"):
+        cached_data["sys"] = formatted_data["sys"]
+    if formatted_data.get("device"):
+        cached_data["device"] = formatted_data["device"]
+    if formatted_data.get("mqtt"):
+        cached_data["mqtt"] = formatted_data["mqtt"]
+    if formatted_data.get("ts"):
+        cached_data["ts"] = formatted_data["ts"]
+    
+    # Prepara il messaggio da inviare
+    message = {
+        "success": True,
+        "data": cached_data.copy(),
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Notifica tutti i client connessi
+    for queue in _sse_connections[sensor_name]:
+        try:
+            await queue.put(message)
+        except Exception as e:
+            print(f"Errore notifica SSE per {sensor_name}: {e}")
 
 
