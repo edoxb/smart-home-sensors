@@ -118,7 +118,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const lastDataRef = useRef<ArduinoGrowBoxData>({})
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // stato locale per i 5 attuatori
+  // stato locale per i 5 attuatori (sincronizzato con DB)
   const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
   const [pompaAcquaOn, setPompaAcquaOn] = useState(false)
   const [resistenzaOn, setResistenzaOn] = useState(false)
@@ -132,27 +132,65 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   // stato per la coltivazione
   const [cultivationActive, setCultivationActive] = useState(false)
   const [cultivationLoading, setCultivationLoading] = useState(false)
+  
+  // stato attuatori, target e valori medi
+  const [targets, setTargets] = useState<{
+    temp_target_min?: number | null
+    temp_target_max?: number | null
+    hum_target_min?: number | null
+    hum_target_max?: number | null
+  }>({})
+  const [currentValues, setCurrentValues] = useState<{
+    avg_temperature?: number | null
+    avg_humidity?: number | null
+  }>({})
 
-  const fetchData = useCallback(async () => {
+  // Funzione unificata per caricare tutti i dati (sensori + stato coltivazione)
+  const fetchAllData = useCallback(async () => {
     try {
       setLoading(true)
-      const response = await fetch(`/sensors/${sensorName}/data`)
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stato-coltivazione`)
       if (!response.ok) {
         throw new Error(`Errore ${response.status}`)
       }
       const result = await response.json()
-      const newData = result.data || {}
       
-      // Verifica se i dati sono cambiati
+      // Aggiorna dati sensore
+      const newData = result.sensor_data || {}
       const dataChanged = JSON.stringify(newData) !== JSON.stringify(lastDataRef.current)
       
       if (dataChanged) {
-        // Dati cambiati: aggiorna il timestamp e usa polling veloce
         lastUpdateRef.current = Date.now()
         lastDataRef.current = newData
       }
       
       setData(newData)
+      
+      // Aggiorna stato coltivazione
+      setCultivationActive(result.cultivation_active || false)
+      if (result.growth_phase) {
+        setFase(result.growth_phase)
+      }
+      
+      // Aggiorna stato attuatori
+      if (result.actuator_states) {
+        setLuceLedOn(result.actuator_states.luce_led || false)
+        setVentolaOn(result.actuator_states.ventola || false)
+        setResistenzaOn(result.actuator_states.resistenza || false)
+        setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione || false)
+        setPompaAcquaOn(result.actuator_states.pompa_acqua || false)
+      }
+      
+      // Aggiorna target
+      if (result.targets) {
+        setTargets(result.targets)
+      }
+      
+      // Aggiorna valori correnti
+      if (result.current_values) {
+        setCurrentValues(result.current_values)
+      }
+      
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto')
@@ -164,8 +202,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   // Carica la fase corrente all'avvio
   const fetchFase = useCallback(async () => {
     try {
-      const encodedName = encodeURIComponent(sensorName)
-      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fase`)
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase`)
       if (response.ok) {
         const result = await response.json()
         setFase(result.fase || null)
@@ -175,16 +212,35 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
   }, [sensorName])
 
-  // Carica lo stato della coltivazione
+  // Carica solo lo stato della coltivazione (usato dopo azioni per aggiornare velocemente)
   const fetchCultivationStatus = useCallback(async () => {
     try {
-      const encodedName = encodeURIComponent(sensorName)
-      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/stato-coltivazione`)
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stato-coltivazione`)
       if (response.ok) {
         const result = await response.json()
         setCultivationActive(result.cultivation_active || false)
         if (result.growth_phase) {
           setFase(result.growth_phase)
+        }
+        // Aggiorna stato attuatori
+        if (result.actuator_states) {
+          setLuceLedOn(result.actuator_states.luce_led || false)
+          setVentolaOn(result.actuator_states.ventola || false)
+          setResistenzaOn(result.actuator_states.resistenza || false)
+          setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione || false)
+          setPompaAcquaOn(result.actuator_states.pompa_acqua || false)
+        }
+        // Aggiorna target
+        if (result.targets) {
+          setTargets(result.targets)
+        }
+        // Aggiorna valori correnti
+        if (result.current_values) {
+          setCurrentValues(result.current_values)
+        }
+        // Aggiorna anche i dati del sensore se presenti
+        if (result.sensor_data) {
+          setData(result.sensor_data)
         }
       }
     } catch (err) {
@@ -200,8 +256,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     
     setCultivationLoading(true)
     try {
-      const encodedName = encodeURIComponent(sensorName)
-      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/inizia-coltivazione`, {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/inizia-coltivazione`, {
         method: 'POST'
       })
       if (!response.ok) {
@@ -229,8 +284,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     
     setCultivationLoading(true)
     try {
-      const encodedName = encodeURIComponent(sensorName)
-      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fine-coltivazione`, {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fine-coltivazione`, {
         method: 'POST'
       })
       if (!response.ok) {
@@ -253,8 +307,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const setFaseHandler = async (nuovaFase: string) => {
     setFaseLoading(true)
     try {
-      const encodedName = encodeURIComponent(sensorName)
-      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fase?fase=${nuovaFase}`, {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase?fase=${nuovaFase}`, {
         method: 'POST'
       })
       if (!response.ok) {
@@ -275,6 +328,13 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     fetchFase()
     fetchCultivationStatus()
   }, [fetchFase, fetchCultivationStatus])
+
+  // Aggiorna lo stato coltivazione quando cambia cultivationActive
+  useEffect(() => {
+    if (cultivationActive) {
+      fetchCultivationStatus()
+    }
+  }, [cultivationActive, fetchCultivationStatus])
 
   // Polling adattivo: più veloce se ci sono aggiornamenti recenti
   useEffect(() => {
@@ -298,7 +358,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       timeoutRef.current = setTimeout(async () => {
         if (!isMounted) return
         try {
-          await fetchData()
+          // Usa fetchAllData che carica tutto in una singola richiesta
+          await fetchAllData()
           if (isMounted) {
             scheduleNextFetch()
           }
@@ -312,7 +373,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     }
     
     // Prima chiamata immediata
-    fetchData().then(() => {
+    fetchAllData().then(() => {
       if (isMounted) {
         scheduleNextFetch()
       }
@@ -324,26 +385,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         clearTimeout(timeoutRef.current)
       }
     }
-  }, [sensorName, fetchData])
+  }, [sensorName, fetchAllData])
 
-  const executeAction = async (actionName: string) => {
-    setActionLoading(prev => ({ ...prev, [actionName]: true }))
-    try {
-      const response = await fetch(`/sensors/${sensorName}/actions/${actionName}`, {
-        method: 'POST'
-      })
-      if (!response.ok) {
-        const errorResp = await response.json()
-        throw new Error(errorResp.detail || 'Errore nella richiesta')
-      }
-      const result = await response.json()
-      console.log('Azione eseguita:', result)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setActionLoading(prev => ({ ...prev, [actionName]: false }))
-    }
-  }
 
   if (loading && Object.keys(data).length === 0) {
     return (
@@ -359,7 +402,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         <p>Errore: {error}</p>
         <button
           type="button"
-          onClick={fetchData}
+          onClick={fetchAllData}
           style={{
             marginTop: '1rem',
             padding: '0.5rem 1rem',
@@ -580,6 +623,112 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         )}
       </div>
 
+      {/* Sezione Target e Valori Correnti */}
+      {cultivationActive && fase && (
+        <div style={{ marginBottom: '3rem' }}>
+          <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
+            Target e Valori Correnti
+          </h2>
+          <div style={{
+            backgroundColor: 'rgba(143, 1, 119, 0.3)',
+            padding: '1.5rem',
+            borderRadius: '12px',
+            border: '2px solid #8F0177',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+            gap: '1.5rem'
+          }}>
+            {/* Temperatura Target */}
+            <div style={{
+              padding: '1rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#F4B342', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                Temperatura Target
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#4CAF50' }}>
+                {targets.temp_target_min !== null && targets.temp_target_max !== null
+                  ? `${targets.temp_target_min}°C - ${targets.temp_target_max}°C`
+                  : 'N/A'}
+              </div>
+            </div>
+
+            {/* Temperatura Media Corrente */}
+            <div style={{
+              padding: '1rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#F4B342', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                Temperatura Media
+              </div>
+              <div style={{ 
+                fontSize: '1.5rem', 
+                fontWeight: 'bold', 
+                color: currentValues.avg_temperature !== null && currentValues.avg_temperature !== undefined
+                  ? (targets.temp_target_min !== null && targets.temp_target_min !== undefined &&
+                     targets.temp_target_max !== null && targets.temp_target_max !== undefined &&
+                     currentValues.avg_temperature >= targets.temp_target_min &&
+                     currentValues.avg_temperature <= targets.temp_target_max
+                    ? '#4CAF50' : '#F44336')
+                  : '#9E9E9E'
+              }}>
+                {currentValues.avg_temperature !== null && currentValues.avg_temperature !== undefined
+                  ? `${currentValues.avg_temperature.toFixed(1)}°C`
+                  : 'N/A'}
+              </div>
+            </div>
+
+            {/* Umidità Target */}
+            <div style={{
+              padding: '1rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#F4B342', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                Umidità Target
+              </div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 'bold', color: '#2196F3' }}>
+                {targets.hum_target_min !== null && targets.hum_target_max !== null
+                  ? `${targets.hum_target_min}% - ${targets.hum_target_max}%`
+                  : 'N/A'}
+              </div>
+            </div>
+
+            {/* Umidità Media Corrente */}
+            <div style={{
+              padding: '1rem',
+              backgroundColor: 'rgba(0, 0, 0, 0.2)',
+              borderRadius: '8px',
+              textAlign: 'center'
+            }}>
+              <div style={{ color: '#F4B342', fontSize: '0.85rem', marginBottom: '0.5rem' }}>
+                Umidità Media
+              </div>
+              <div style={{ 
+                fontSize: '1.5rem', 
+                fontWeight: 'bold', 
+                color: currentValues.avg_humidity !== null && currentValues.avg_humidity !== undefined
+                  ? (targets.hum_target_min !== null && targets.hum_target_min !== undefined &&
+                     targets.hum_target_max !== null && targets.hum_target_max !== undefined &&
+                     currentValues.avg_humidity >= targets.hum_target_min &&
+                     currentValues.avg_humidity <= targets.hum_target_max
+                    ? '#4CAF50' : '#F44336')
+                  : '#9E9E9E'
+              }}>
+                {currentValues.avg_humidity !== null && currentValues.avg_humidity !== undefined
+                  ? `${currentValues.avg_humidity.toFixed(1)}%`
+                  : 'N/A'}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Sezione Sensori */}
       <div style={{ marginBottom: '3rem' }}>
         <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
@@ -674,12 +823,22 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 )
               }
               onToggle={async () => {
-                if (pompaAspirazioneOn) {
-                  await executeAction('pompa_aspirazione_off')
-                  setPompaAspirazioneOn(false)
-                } else {
-                  await executeAction('pompa_aspirazione_on')
-                  setPompaAspirazioneOn(true)
+                const action = pompaAspirazioneOn ? 'off' : 'on'
+                setActionLoading(prev => ({ ...prev, [`pompa_aspirazione_${action}`]: true }))
+                try {
+                  const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/pompa-aspirazione?action=${action}`, {
+                    method: 'POST'
+                  })
+                  if (!response.ok) {
+                    const errorResp = await response.json()
+                    throw new Error(errorResp.detail || 'Errore nella richiesta')
+                  }
+                  // Ricarica lo stato coltivazione per aggiornare stato attuatori
+                  await fetchCultivationStatus()
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+                } finally {
+                  setActionLoading(prev => ({ ...prev, [`pompa_aspirazione_${action}`]: false }))
                 }
               }}
             />
@@ -716,12 +875,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 )
               }
               onToggle={async () => {
-                if (pompaAcquaOn) {
-                  await executeAction('pompa_acqua_off')
-                  setPompaAcquaOn(false)
-                } else {
-                  await executeAction('pompa_acqua_on')
-                  setPompaAcquaOn(true)
+                const action = pompaAcquaOn ? 'off' : 'on'
+                setActionLoading(prev => ({ ...prev, [`pompa_acqua_${action}`]: true }))
+                try {
+                  const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/pompa-acqua?action=${action}`, {
+                    method: 'POST'
+                  })
+                  if (!response.ok) {
+                    const errorResp = await response.json()
+                    throw new Error(errorResp.detail || 'Errore nella richiesta')
+                  }
+                  await fetchCultivationStatus()
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+                } finally {
+                  setActionLoading(prev => ({ ...prev, [`pompa_acqua_${action}`]: false }))
                 }
               }}
             />
@@ -756,12 +924,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 )
               }
               onToggle={async () => {
-                if (resistenzaOn) {
-                  await executeAction('resistenza_off')
-                  setResistenzaOn(false)
-                } else {
-                  await executeAction('resistenza_on')
-                  setResistenzaOn(true)
+                const action = resistenzaOn ? 'off' : 'on'
+                setActionLoading(prev => ({ ...prev, [`resistenza_${action}`]: true }))
+                try {
+                  const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/resistenza?action=${action}`, {
+                    method: 'POST'
+                  })
+                  if (!response.ok) {
+                    const errorResp = await response.json()
+                    throw new Error(errorResp.detail || 'Errore nella richiesta')
+                  }
+                  await fetchCultivationStatus()
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+                } finally {
+                  setActionLoading(prev => ({ ...prev, [`resistenza_${action}`]: false }))
                 }
               }}
             />
@@ -798,12 +975,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 )
               }
               onToggle={async () => {
-                if (luceLedOn) {
-                  await executeAction('luce_led_off')
-                  setLuceLedOn(false)
-                } else {
-                  await executeAction('luce_led_on')
-                  setLuceLedOn(true)
+                const action = luceLedOn ? 'off' : 'on'
+                setActionLoading(prev => ({ ...prev, [`luce_led_${action}`]: true }))
+                try {
+                  const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/luce-led?action=${action}`, {
+                    method: 'POST'
+                  })
+                  if (!response.ok) {
+                    const errorResp = await response.json()
+                    throw new Error(errorResp.detail || 'Errore nella richiesta')
+                  }
+                  await fetchCultivationStatus()
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+                } finally {
+                  setActionLoading(prev => ({ ...prev, [`luce_led_${action}`]: false }))
                 }
               }}
             />
@@ -845,12 +1031,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 )
               }
               onToggle={async () => {
-                if (ventolaOn) {
-                  await executeAction('ventola_off')
-                  setVentolaOn(false)
-                } else {
-                  await executeAction('ventola_on')
-                  setVentolaOn(true)
+                const action = ventolaOn ? 'off' : 'on'
+                setActionLoading(prev => ({ ...prev, [`ventola_${action}`]: true }))
+                try {
+                  const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/ventola?action=${action}`, {
+                    method: 'POST'
+                  })
+                  if (!response.ok) {
+                    const errorResp = await response.json()
+                    throw new Error(errorResp.detail || 'Errore nella richiesta')
+                  }
+                  await fetchCultivationStatus()
+                } catch (err) {
+                  alert(err instanceof Error ? err.message : 'Errore sconosciuto')
+                } finally {
+                  setActionLoading(prev => ({ ...prev, [`ventola_${action}`]: false }))
                 }
               }}
             />

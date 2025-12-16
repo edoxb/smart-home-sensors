@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from app.dependencies import get_business_logic, get_mongo_client
 from app.services.business_logic import BusinessLogic
 from app.db.mongo_client import MongoClientWrapper
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/sensors/arduino-grow-box", tags=["arduino_grow_box"])
@@ -25,6 +25,135 @@ async def handle_growbox_automation(sensor_name: str, data: dict, phase: Optiona
     """
     await _handle_growbox_phase_logic(sensor_name, data, phase)
 
+async def _save_actuator_state(sensor_name: str, actuator_name: str, state: bool, mongo_client: MongoClientWrapper):
+    """Salva lo stato di un attuatore nel database"""
+    try:
+        if mongo_client.db is None:
+            return
+        
+        collection = mongo_client.db.sensor_configs
+        field_name = f"actuator_{actuator_name}_state"
+        
+        await collection.update_one(
+            {"name": sensor_name},
+            {"$set": {field_name: state}},
+            upsert=True
+        )
+    except Exception as e:
+        print(f"Errore salvataggio stato attuatore {actuator_name} per {sensor_name}: {e}")
+
+async def _get_actuator_states(sensor_name: str, mongo_client: MongoClientWrapper) -> Dict[str, bool]:
+    """Recupera lo stato di tutti gli attuatori dal database"""
+    try:
+        if mongo_client.db is None:
+            return {}
+        
+        config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
+        if not config:
+            return {}
+        
+        actuators = {
+            "luce_led": config.get("actuator_luce_led_state", False),
+            "ventola": config.get("actuator_ventola_state", False),
+            "resistenza": config.get("actuator_resistenza_state", False),
+            "pompa_aspirazione": config.get("actuator_pompa_aspirazione_state", False),
+            "pompa_acqua": config.get("actuator_pompa_acqua_state", False)
+        }
+        return actuators
+    except Exception as e:
+        print(f"Errore lettura stato attuatori per {sensor_name}: {e}")
+        return {}
+
+async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[MongoClientWrapper], sensor_name: str) -> Dict[str, Any]:
+    """Calcola i target temperatura e umidità in base alla fase"""
+    if not phase:
+        return {
+            "temp_target_min": None,
+            "temp_target_max": None,
+            "hum_target_min": None,
+            "hum_target_max": None
+        }
+    
+    if phase == "piantina":
+        # Target: 65-70% umidità, 20-25°C con luci accese, 4-5°C in meno con luci spente
+        led_on = _led_state.get(sensor_name, {}).get("is_on", False)
+        if led_on:
+            return {
+                "temp_target_min": 20,
+                "temp_target_max": 25,
+                "hum_target_min": 65,
+                "hum_target_max": 70
+            }
+        else:
+            return {
+                "temp_target_min": 15,  # 20-5
+                "temp_target_max": 21,  # 25-4
+                "hum_target_min": 65,
+                "hum_target_max": 70
+            }
+    
+    elif phase == "vegetativa":
+        # Umidità che diminuisce del 5% ogni settimana, 22-28°C con luci accese, 4-5°C in meno con luci spente
+        weeks_elapsed = 0
+        if mongo_client and mongo_client.db:
+            try:
+                # Nota: questa funzione è sincrona, ma mongo_client.db.find_one è async
+                # Per ora usiamo un approccio semplificato
+                # In produzione, questa funzione dovrebbe essere async o usare un valore cached
+                pass  # Calcolo settimane sarà fatto nella funzione async _handle_vegetativa_phase
+                    start_date = config.get("vegetative_start_date") or config.get("cultivation_start_date")
+                    if start_date:
+                        if isinstance(start_date, str):
+                            try:
+                                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+                            except:
+                                try:
+                                    start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
+                                except:
+                                    start_date = datetime.now()
+                        elif not isinstance(start_date, datetime):
+                            start_date = datetime.now()
+                        weeks_elapsed = (datetime.now() - start_date).days // 7
+            except:
+                pass
+        
+        base_hum = 65
+        hum_reduction = weeks_elapsed * 5
+        hum_min = max(40, base_hum - hum_reduction)
+        hum_max = max(45, base_hum - hum_reduction + 5)
+        
+        led_on = _led_state.get(sensor_name, {}).get("is_on", False)
+        if led_on:
+            return {
+                "temp_target_min": 22,
+                "temp_target_max": 28,
+                "hum_target_min": hum_min,
+                "hum_target_max": hum_max
+            }
+        else:
+            return {
+                "temp_target_min": 17,  # 22-5
+                "temp_target_max": 24,  # 28-4
+                "hum_target_min": hum_min,
+                "hum_target_max": hum_max
+            }
+    
+    elif phase == "fioritura":
+        # Target: 40-50% umidità, 20-26°C con luci accese
+        return {
+            "temp_target_min": 20,
+            "temp_target_max": 26,
+            "hum_target_min": 40,
+            "hum_target_max": 50
+        }
+    
+    return {
+        "temp_target_min": None,
+        "temp_target_max": None,
+        "hum_target_min": None,
+        "hum_target_max": None
+    }
+
 @router.post("/{sensor_name}/fase")
 async def set_fase(
     sensor_name: str,
@@ -33,7 +162,7 @@ async def set_fase(
 ):
     """Salva la fase di crescita nel database (sovrascrive il valore precedente)"""
     try:
-        if mongo_client.db is None:  # CORRETTO: usa is None invece di if not
+        if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
         
         collection = mongo_client.db.sensor_configs
@@ -56,7 +185,7 @@ async def get_fase(
 ):
     """Recupera la fase di crescita corrente dal database"""
     try:
-        if mongo_client.db is None:  # CORRETTO: usa is None invece di if
+        if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
         
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
@@ -135,7 +264,12 @@ async def fine_coltivazione(
                     "cultivation_start_date": "",
                     "vegetative_start_date": "",
                     "flowering_start_date": "",
-                    "cultivation_active": ""
+                    "cultivation_active": "",
+                    "actuator_luce_led_state": "",
+                    "actuator_ventola_state": "",
+                    "actuator_resistenza_state": "",
+                    "actuator_pompa_aspirazione_state": "",
+                    "actuator_pompa_acqua_state": ""
                 }
             }
         )
@@ -172,22 +306,69 @@ async def fine_coltivazione(
 @router.get("/{sensor_name}/stato-coltivazione")
 async def get_stato_coltivazione(
     sensor_name: str,
-    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client),
+    business_logic: BusinessLogic = Depends(get_business_logic)
 ):
-    """Recupera lo stato della coltivazione corrente"""
+    """Recupera lo stato completo della coltivazione: fase, attuatori, target, valori medi e dati sensori completi"""
     try:
         if mongo_client.db is None:
             raise HTTPException(status_code=500, detail="Database non connesso")
         
         config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
+        phase = config.get("growth_phase") if config else None
+        
+        # Recupera stato attuatori
+        actuator_states = await _get_actuator_states(sensor_name, mongo_client)
+        
+        # Calcola target in base alla fase
+        targets = await _get_targets_for_phase(phase, mongo_client, sensor_name)
+        
+        # Recupera dati sensore completi
+        sensor_data_dict = {}
+        avg_temp = None
+        avg_hum = None
+        try:
+            sensor_data = await business_logic.read_sensor_data(sensor_name)
+            if sensor_data and sensor_data.data:
+                # Includi tutti i dati del sensore
+                sensor_data_dict = sensor_data.data
+                
+                # Calcola medie
+                temps = [
+                    sensor_data.data.get("temperature_1"),
+                    sensor_data.data.get("temperature_2"),
+                    sensor_data.data.get("temperature_3"),
+                    sensor_data.data.get("temperature_4")
+                ]
+                hums = [
+                    sensor_data.data.get("humidity_1"),
+                    sensor_data.data.get("humidity_2"),
+                    sensor_data.data.get("humidity_3"),
+                    sensor_data.data.get("humidity_4")
+                ]
+                
+                valid_temps = [t for t in temps if t is not None]
+                valid_hums = [h for h in hums if h is not None]
+                avg_temp = sum(valid_temps) / len(valid_temps) if valid_temps else None
+                avg_hum = sum(valid_hums) / len(valid_hums) if valid_hums else None
+        except:
+            pass
+        
         if config:
             return {
                 "success": True,
                 "cultivation_active": config.get("cultivation_active", False),
-                "growth_phase": config.get("growth_phase"),
+                "growth_phase": phase,
                 "cultivation_start_date": config.get("cultivation_start_date"),
                 "vegetative_start_date": config.get("vegetative_start_date"),
                 "flowering_start_date": config.get("flowering_start_date"),
+                "actuator_states": actuator_states,
+                "targets": targets,
+                "current_values": {
+                    "avg_temperature": avg_temp,
+                    "avg_humidity": avg_hum
+                },
+                "sensor_data": sensor_data_dict,  # Dati completi del sensore
                 "sensor_name": sensor_name
             }
         else:
@@ -195,6 +376,13 @@ async def get_stato_coltivazione(
                 "success": True,
                 "cultivation_active": False,
                 "growth_phase": None,
+                "actuator_states": actuator_states,
+                "targets": targets,
+                "current_values": {
+                    "avg_temperature": avg_temp,
+                    "avg_humidity": avg_hum
+                },
+                "sensor_data": sensor_data_dict,  # Dati completi del sensore
                 "sensor_name": sensor_name
             }
     except Exception as e:
@@ -204,71 +392,85 @@ async def get_stato_coltivazione(
 async def control_pompa_aspirazione(
     sensor_name: str,
     action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
-    business_logic: BusinessLogic = Depends(get_business_logic)
+    business_logic: BusinessLogic = Depends(get_business_logic),
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
 ):
     """Controlla la pompa di aspirazione"""
     action_name = f"pompa_aspirazione_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
+    # Salva stato nel DB
+    await _save_actuator_state(sensor_name, "pompa_aspirazione", action == "on", mongo_client)
     return result
 
 @router.post("/{sensor_name}/pompa-acqua")
 async def control_pompa_acqua(
     sensor_name: str,
     action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
-    business_logic: BusinessLogic = Depends(get_business_logic)
+    business_logic: BusinessLogic = Depends(get_business_logic),
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
 ):
     """Controlla la pompa dell'acqua"""
     action_name = f"pompa_acqua_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
+    # Salva stato nel DB
+    await _save_actuator_state(sensor_name, "pompa_acqua", action == "on", mongo_client)
     return result
 
 @router.post("/{sensor_name}/resistenza")
 async def control_resistenza(
     sensor_name: str,
     action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
-    business_logic: BusinessLogic = Depends(get_business_logic)
+    business_logic: BusinessLogic = Depends(get_business_logic),
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
 ):
     """Controlla la resistenza scaldante"""
     action_name = f"resistenza_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
+    # Salva stato nel DB
+    await _save_actuator_state(sensor_name, "resistenza", action == "on", mongo_client)
     return result
 
 @router.post("/{sensor_name}/luce-led")
 async def control_luce_led(
     sensor_name: str,
     action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
-    business_logic: BusinessLogic = Depends(get_business_logic)
+    business_logic: BusinessLogic = Depends(get_business_logic),
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
 ):
     """Controlla la luce LED"""
     action_name = f"luce_led_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
-    # Aggiorna stato LED locale
+    # Aggiorna stato LED locale e nel DB
     if result.success:
         if sensor_name not in _led_state:
             _led_state[sensor_name] = {"is_on": False, "last_toggle": datetime.now()}
         _led_state[sensor_name]["is_on"] = (action == "on")
         _led_state[sensor_name]["last_toggle"] = datetime.now()
+        await _save_actuator_state(sensor_name, "luce_led", action == "on", mongo_client)
     return result
 
 @router.post("/{sensor_name}/ventola")
 async def control_ventola(
     sensor_name: str,
     action: str = Query(..., description="Azione da eseguire: 'on' o 'off'", regex="^(on|off)$"),
-    business_logic: BusinessLogic = Depends(get_business_logic)
+    business_logic: BusinessLogic = Depends(get_business_logic),
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
 ):
     """Controlla la ventola"""
     action_name = f"ventola_{action}"
     result = await business_logic.execute_sensor_action(sensor_name, action_name)
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error)
+    # Salva stato nel DB
+    await _save_actuator_state(sensor_name, "ventola", action == "on", mongo_client)
     return result
 
 # Funzione per la logica di automazione delle 3 fasi
@@ -552,9 +754,15 @@ async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
 async def _execute_action_safe(sensor_name: str, action_name: str):
     """Esegue un'azione in modo sicuro (ignora errori)"""
     try:
-        from app.dependencies import business_logic
+        from app.dependencies import business_logic, mongo_client
         if business_logic:
-            await business_logic.execute_sensor_action(sensor_name, action_name)
+            result = await business_logic.execute_sensor_action(sensor_name, action_name)
+            # Salva stato attuatore nel DB dopo l'esecuzione
+            if result.success and mongo_client:
+                # Estrai nome attuatore dall'action_name (es: "luce_led_on" -> "luce_led")
+                actuator_name = action_name.replace("_on", "").replace("_off", "")
+                state = action_name.endswith("_on")
+                await _save_actuator_state(sensor_name, actuator_name, state, mongo_client)
     except Exception as e:
         print(f"    ⚠ Errore esecuzione azione {action_name} per {sensor_name}: {e}")
 
