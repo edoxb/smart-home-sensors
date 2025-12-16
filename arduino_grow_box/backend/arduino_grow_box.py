@@ -29,7 +29,7 @@ async def set_fase(
 ):
     """Salva la fase di crescita nel database (sovrascrive il valore precedente)"""
     try:
-        if not mongo_client.db:
+        if mongo_client.db is None:  # CORRETTO: usa is None invece di if not
             raise HTTPException(status_code=500, detail="Database non connesso")
         
         collection = mongo_client.db.sensor_configs
@@ -44,6 +44,7 @@ async def set_fase(
         return {"success": True, "fase": fase, "sensor_name": sensor_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
+
 @router.get("/{sensor_name}/fase")
 async def get_fase(
     sensor_name: str,
@@ -51,18 +52,17 @@ async def get_fase(
 ):
     """Recupera la fase di crescita corrente dal database"""
     try:
-        if mongo_client.db:
-            config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
-            if config:
-                fase = config.get("growth_phase", None)
-                return {"success": True, "fase": fase, "sensor_name": sensor_name}
-            else:
-                return {"success": True, "fase": None, "sensor_name": sensor_name}
-        else:
+        if mongo_client.db is None:  # CORRETTO: usa is None invece di if
             raise HTTPException(status_code=500, detail="Database non connesso")
+        
+        config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
+        if config:
+            fase = config.get("growth_phase", None)
+            return {"success": True, "fase": fase, "sensor_name": sensor_name}
+        else:
+            return {"success": True, "fase": None, "sensor_name": sensor_name}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
-
 @router.post("/{sensor_name}/pompa-aspirazione")
 async def control_pompa_aspirazione(
     sensor_name: str,
