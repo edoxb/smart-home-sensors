@@ -1,609 +1,442 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import os
+import json
+import asyncio
+from typing import Dict, Any, Optional, Callable, Tuple
+from datetime import datetime
+from app.protocols.protocol_base import ProtocolBase
+from app.models import SensorConfig, SensorData
 
-interface SensorControlProps {
-  sensorName: string
-}
+try:
+    from aiomqtt import Client as MQTTClient
+    from aiomqtt.exceptions import MqttReentrantError
+    MQTT_AVAILABLE = True
+except ImportError:
+    MQTT_AVAILABLE = False
+    MQTTClient = None
+    MqttReentrantError = None
 
-interface ArduinoGrowBoxData {
-  temperature_1?: number
-  temperature_2?: number
-  temperature_3?: number
-  temperature_4?: number
-  humidity_1?: number
-  humidity_2?: number
-  humidity_3?: number
-  humidity_4?: number
-  water_level?: number
-}
 
-interface PowerButtonProps {
-  label: string
-  isOn: boolean
-  loading: boolean
-  onToggle: () => void | Promise<void>
-}
-
-const PowerButton: React.FC<PowerButtonProps> = ({ label, isOn, loading, onToggle }) => {
-  return (
-    <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        disabled={loading}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '82px',
-          height: '82px',
-          borderRadius: '50%',
-          border: '2px solid #0d6efd',
-          backgroundColor: isOn ? '#0d6efd' : '#0b3d91',
-          cursor: loading ? 'not-allowed' : 'pointer',
-          transition: 'background-color 0.3s ease-in-out, box-shadow 0.3s ease-in-out',
-          boxShadow: isOn
-            ? '0 0 18px rgba(13, 110, 253, 0.9), 0 0 35px rgba(13, 110, 253, 0.7)'
-            : '0 0 8px rgba(0, 0, 0, 0.5)',
-          opacity: loading ? 0.7 : 1
-        }}
-      >
-        {/* Icona power disegnata in puro CSS, senza font esterni */}
-        <div
-          style={{
-            position: 'relative',
-            width: '38px',
-            height: '38px',
-            borderRadius: '50%',
-            border: '3px solid #ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: isOn
-              ? '0 0 12px rgba(255,255,255,0.95)'
-              : '0 0 4px rgba(0,0,0,0.6)',
-            transition: 'box-shadow 0.3s ease-in-out'
-          }}
-        >
-          {/* asta centrale */}
-          <div
-            style={{
-              position: 'absolute',
-              top: '4px',
-              width: '4px',
-              height: '16px',
-              borderRadius: '2px',
-              backgroundColor: '#ffffff',
-              boxShadow: isOn ? '0 0 6px rgba(255,255,255,0.9)' : 'none',
-              transition: 'box-shadow 0.3s ease-in-out'
-            }}
-          />
-          {/* arco circolare */}
-          <div
-            style={{
-              width: '20px',
-              height: '20px',
-              borderRadius: '50%',
-              borderWidth: '3px',
-              borderStyle: 'solid',
-              borderColor: '#ffffff',
-              borderTopColor: 'transparent',
-              opacity: isOn ? 1 : 0.7,
-              boxShadow: isOn ? '0 0 8px rgba(255,255,255,0.9)' : 'none',
-              transition: 'opacity 0.3s ease-in-out, box-shadow 0.3s ease-in-out'
-            }}
-          />
-        </div>
-      </button>
-      <div
-        style={{
-          marginTop: '0.5rem',
-          fontSize: '0.85rem',
-          color: isOn ? '#51CBEE' : '#ffffff'
-        }}
-      >
-        {label} {loading ? '...' : isOn ? '(ON)' : '(OFF)'}
-      </div>
-    </div>
-  )
-}
-
-const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => {
-  const [data, setData] = useState<ArduinoGrowBoxData>({})
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
-  
-  // Polling adattivo: traccia l'ultimo aggiornamento
-  const lastUpdateRef = useRef<number>(Date.now())
-  const lastDataRef = useRef<ArduinoGrowBoxData>({})
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // stato locale per i 5 attuatori
-  const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
-  const [pompaAcquaOn, setPompaAcquaOn] = useState(false)
-  const [resistenzaOn, setResistenzaOn] = useState(false)
-  const [luceLedOn, setLuceLedOn] = useState(false)
-  const [ventolaOn, setVentolaOn] = useState(false)
-
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true)
-      const response = await fetch(`/sensors/${sensorName}/data`)
-      if (!response.ok) {
-        throw new Error(`Errore ${response.status}`)
-      }
-      const result = await response.json()
-      const newData = result.data || {}
-      
-      // Verifica se i dati sono cambiati
-      const dataChanged = JSON.stringify(newData) !== JSON.stringify(lastDataRef.current)
-      
-      if (dataChanged) {
-        // Dati cambiati: aggiorna il timestamp e usa polling veloce
-        lastUpdateRef.current = Date.now()
-        lastDataRef.current = newData
-      }
-      
-      setData(newData)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setLoading(false)
-    }
-  }, [sensorName])
-
-  // Polling adattivo: più veloce se ci sono aggiornamenti recenti
-  useEffect(() => {
-    let isMounted = true
+class MQTTProtocol(ProtocolBase):
+    """Protocollo MQTT per comunicazione bidirezionale con sensori"""
     
-    const scheduleNextFetch = async () => {
-      if (!isMounted) return
-      
-      // Cancella il timeout precedente se esiste
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
-      
-      const now = Date.now()
-      const timeSinceLastUpdate = now - lastUpdateRef.current
-      
-      // Se ci sono stati aggiornamenti negli ultimi 10 secondi, usa polling veloce (1s)
-      // Altrimenti usa polling lento (5s)
-      const interval = timeSinceLastUpdate < 10000 ? 1000 : 5000
-      
-      timeoutRef.current = setTimeout(async () => {
-        if (!isMounted) return
-        try {
-          await fetchData()
-          if (isMounted) {
-            scheduleNextFetch()
-          }
-        } catch (err) {
-          // In caso di errore, riprova comunque dopo l'intervallo
-          if (isMounted) {
-            scheduleNextFetch()
-          }
+    # Client MQTT condiviso (inizializzato dal sistema)
+    _mqtt_client: Optional[MQTTClient] = None
+    _mqtt_client_lock = asyncio.Lock()
+    _mqtt_client_connected = False  # Flag per tracciare se il client è connesso
+    _connected_sensors_count = 0  # Contatore sensori MQTT connessi
+    _mongo_client = None  # Riferimento a MongoDB per salvare dati immediatamente
+    _automation_service = None  # Riferimento ad AutomationService
+    
+    @classmethod
+    def set_mqtt_client(cls, mqtt_client: MQTTClient) -> None:
+        """Imposta il client MQTT condiviso per tutti i protocolli MQTT"""
+        cls._mqtt_client = mqtt_client
+    
+    def __init__(self, config: SensorConfig):
+        super().__init__(config)
+        
+        if not MQTT_AVAILABLE:
+            raise ImportError("aiomqtt non installato. Installa con: pip install aiomqtt")
+        
+        # Topic MQTT: se specificati nella config (dal plugin), usali, altrimenti usa topic standardizzati
+        # I topic possono essere definiti dal plugin del sensore nei metadata o nella configurazione
+        # Sostituisci placeholder {device_id} e {name} se presenti
+        topic_status_template = config.mqtt_topic_status or f"sensors/{config.name}/status"
+        topic_command_template = config.mqtt_topic_command or f"sensors/{config.name}/command"
+        
+        # Sostituisci placeholder
+        replacements = {
+            "{name}": config.name,
+            "{device_id}": config.device_id or ""
         }
-      }, interval)
-    }
+        for placeholder, value in replacements.items():
+            topic_status_template = topic_status_template.replace(placeholder, value)
+            topic_command_template = topic_command_template.replace(placeholder, value)
+        
+        self.topic_status = topic_status_template
+        self.topic_command = topic_command_template if topic_command_template != "sensors/{name}/command" else f"sensors/{config.name}/command"
+        
+        # Flag per indicare se il topic è un wildcard (contiene # o +)
+        self.is_wildcard_topic = "#" in self.topic_status or "+" in self.topic_status
+        
+        print(f"Sensore {config.name}: Topic MQTT configurati - Status: {self.topic_status}, Command: {self.topic_command} (wildcard: {self.is_wildcard_topic})")
+        
+        # Broker MQTT (da variabili d'ambiente o default)
+        self.broker_host = os.getenv("MQTT_BROKER_HOST", "mosquitto")
+        self.broker_port = int(os.getenv("MQTT_BROKER_PORT", "1883"))
+        
+        # Stato
+        self._last_data: Optional[Dict[str, Any]] = None
+        self._aggregated_data: Dict[str, Any] = {}  # Per aggregare dati da topic multipli (wildcard)
+        self._message_callbacks: list[Callable] = []
+        self._subscription_task: Optional[asyncio.Task] = None
     
-    // Prima chiamata immediata
-    fetchData().then(() => {
-      if (isMounted) {
-        scheduleNextFetch()
-      }
-    })
+    async def connect(self) -> bool:
+        """Si connette al broker MQTT e si sottoscrive al topic di stato"""
+        try:
+            if not self._mqtt_client:
+                raise RuntimeError("Client MQTT non inizializzato. Assicurati che MQTTProtocol.set_mqtt_client() sia stato chiamato.")
+            
+            # Apri connessione se non già aperta (lazy connection)
+            # aiomqtt.Client usa un context manager, quindi dobbiamo entrare nel context
+            async with self._mqtt_client_lock:
+                if not self._mqtt_client_connected:
+                    try:
+                        # Entra nel context manager per aprire la connessione
+                        await self._mqtt_client.__aenter__()
+                        self._mqtt_client_connected = True
+                        print(f"Client MQTT connesso a {self.broker_host}:{self.broker_port}")
+                    except (RuntimeError, MqttReentrantError) as e:
+                        # Se il client è già nel context (MqttReentrantError o RuntimeError: "Already entered")
+                        if MqttReentrantError and isinstance(e, MqttReentrantError):
+                            # Client già nel context manager (connesso da un altro sensore)
+                            self._mqtt_client_connected = True
+                            print(f"Client MQTT già connesso (reentrant) a {self.broker_host}:{self.broker_port}")
+                        elif "already entered" in str(e).lower() or "already" in str(e).lower():
+                            self._mqtt_client_connected = True
+                            print(f"Client MQTT già connesso a {self.broker_host}:{self.broker_port}")
+                        else:
+                            raise
+            
+            # Sottoscrizione al topic di stato (riceve aggiornamenti dal sensore)
+            await self._mqtt_client.subscribe(self.topic_status)
+            print(f"Sensore {self.name}: Sottoscritto a topic MQTT: {self.topic_status}")
+            
+            # Avvia task per ricevere messaggi
+            self._subscription_task = asyncio.create_task(self._message_loop())
+            
+            # Incrementa contatore sensori connessi
+            async with self._mqtt_client_lock:
+                self._connected_sensors_count += 1
+                print(f"📊 Sensori MQTT connessi: {self._connected_sensors_count}")
+            
+            self.connected = True
+            self.update_last_update()
+            return True
+            
+        except Exception as e:
+            print(f"Errore connessione MQTT per sensore {self.name}: {e}")
+            import traceback
+            traceback.print_exc()
+            self.connected = False
+            return False
     
-    return () => {
-      isMounted = false
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current)
-      }
-    }
-  }, [sensorName, fetchData])
-
-  const executeAction = async (actionName: string) => {
-    setActionLoading(prev => ({ ...prev, [actionName]: true }))
-    try {
-      const response = await fetch(`/sensors/${sensorName}/actions/${actionName}`, {
-        method: 'POST'
-      })
-      if (!response.ok) {
-        const errorResp = await response.json()
-        throw new Error(errorResp.detail || 'Errore nella richiesta')
-      }
-      const result = await response.json()
-      console.log('Azione eseguita:', result)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Errore sconosciuto')
-    } finally {
-      setActionLoading(prev => ({ ...prev, [actionName]: false }))
-    }
-  }
-
-  if (loading && Object.keys(data).length === 0) {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center', color: '#F4B342' }}>
-        <p>Caricamento dati...</p>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div style={{ padding: '2rem', textAlign: 'center', color: '#F44336' }}>
-        <p>Errore: {error}</p>
-        <button
-          type="button"
-          onClick={fetchData}
-          style={{
-            marginTop: '1rem',
-            padding: '0.5rem 1rem',
-            backgroundColor: '#F4B342',
-            color: '#1A1A1A',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Riprova
-        </button>
-      </div>
-    )
-  }
-
-  // Funzione helper per renderizzare un sensore di temperatura
-  const renderTemperatureSensor = (index: number) => {
-    const tempKey = `temperature_${index}` as keyof ArduinoGrowBoxData
-    const value = data[tempKey]
-    return (
-      <div key={`temp-${index}`} style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.75rem',
-        backgroundColor: 'rgba(0, 0, 0, 0.2)',
-        borderRadius: '8px'
-      }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <path d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
-          <path d="M12 14V18" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round"/>
-          <path d="M12 18C13.1046 18 14 18.8954 14 20C14 21.1046 13.1046 22 12 22C10.8954 22 10 21.1046 10 20C10 18.8954 10.8954 18 12 18Z" stroke="#4CAF50" strokeWidth="2" fill="none"/>
-        </svg>
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-            Temp {index}
-          </div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#4CAF50' }}>
-            {value !== undefined ? `${value.toFixed(1)}°C` : 'N/A'}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Funzione helper per renderizzare un sensore di umidità
-  const renderHumiditySensor = (index: number) => {
-    const humKey = `humidity_${index}` as keyof ArduinoGrowBoxData
-    const value = data[humKey]
-    return (
-      <div key={`hum-${index}`} style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        padding: '0.75rem',
-        backgroundColor: 'rgba(0, 0, 0, 0.2)',
-        borderRadius: '8px'
-      }}>
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <path d="M12 2.69L5 6.69V11C5 15.97 9.03 20 14 20C18.97 20 23 15.97 23 11V6.69L16 2.69C15.38 2.31 14.62 2.31 14 2.69Z" stroke="#2196F3" strokeWidth="2" fill="none"/>
-          <path d="M12 2.69V8" stroke="#2196F3" strokeWidth="2" strokeLinecap="round"/>
-          <circle cx="14" cy="11" r="2" fill="#2196F3" opacity="0.3"/>
-        </svg>
-        <div style={{ flex: 1 }}>
-          <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-            Umidità {index}
-          </div>
-          <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#2196F3' }}>
-            {value !== undefined ? `${value}%` : 'N/A'}
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div style={{
-      width: '100%',
-      minHeight: '100vh',
-      padding: '2rem',
-      backgroundColor: '#360185',
-      color: '#FFFFFF'
-    }}>
-      <h1 style={{ color: '#F4B342', fontSize: '2rem', marginBottom: '2rem' }}>
-        Arduino Grow Box - {sensorName}
-      </h1>
-
-      {/* Sezione Sensori */}
-      <div style={{ marginBottom: '3rem' }}>
-        <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
-          Sensori
-        </h2>
-
-        <div style={{
-          backgroundColor: 'rgba(143, 1, 119, 0.3)',
-          padding: '1.5rem',
-          borderRadius: '12px',
-          border: '2px solid #8F0177'
-        }}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-            gap: '1rem'
-          }}>
-            {/* 4 Sensori di Temperatura */}
-            {[1, 2, 3, 4].map(index => renderTemperatureSensor(index))}
-
-            {/* 4 Sensori di Umidità */}
-            {[1, 2, 3, 4].map(index => renderHumiditySensor(index))}
-
-            {/* Livello Acqua */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.75rem',
-              padding: '0.75rem',
-              backgroundColor: 'rgba(0, 0, 0, 0.2)',
-              borderRadius: '8px'
-            }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                <rect x="4" y="6" width="16" height="14" rx="2" stroke="#00BCD4" strokeWidth="2" fill="none"/>
-                <rect x="6" y="16" width="12" height="2" fill="#00BCD4" opacity="0.6"/>
-                <rect x="6" y="12" width="12" height="2" fill="#00BCD4" opacity="0.4"/>
-                <rect x="6" y="8" width="12" height="2" fill="#00BCD4" opacity="0.2"/>
-                <path d="M8 4V6" stroke="#00BCD4" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M16 4V6" stroke="#00BCD4" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: '#F4B342', fontSize: '0.75rem', marginBottom: '0.25rem' }}>
-                  Livello Acqua
-                </div>
-                <div style={{ fontSize: '1.3rem', fontWeight: 'bold', color: '#00BCD4' }}>
-                  {data.water_level !== undefined ? `${data.water_level}%` : 'N/A'}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Sezione Attuatori */}
-      <div>
-        <h2 style={{ color: '#F4B342', marginBottom: '1.5rem', fontSize: '1.5rem' }}>
-          Controllo Attuatori
-        </h2>
-
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '1.5rem'
-        }}>
-          {/* Pompa Aspirazione */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="8" stroke="#F4B342" strokeWidth="2" fill="none"/>
-                <path d="M8 12L12 8L16 12" stroke="#F4B342" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <path d="M12 8V16" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <h3 style={{ color: '#F4B342', margin: 0 }}>
-                Pompa Aspirazione
-              </h3>
-            </div>
-            <PowerButton
-              label="Pompa Aspirazione"
-              isOn={pompaAspirazioneOn}
-              loading={
-                !!(
-                  actionLoading.pompa_aspirazione_on ||
-                  actionLoading.pompa_aspirazione_off
+    async def clear_retained_messages(self) -> None:
+        """Pulisce i messaggi retained pubblicando payload vuoti"""
+        if not self._mqtt_client or not self.connected:
+            return
+        
+        try:
+            # Se il topic è un wildcard, dobbiamo pulire tutti i sottotopic
+            if self.is_wildcard_topic:
+                # Per wildcard, pubblica un messaggio vuoto sul topic base e sui sottotopic comuni
+                base_topic = self.topic_status.replace('/#', '').replace('/+', '')
+                
+                # Pulisci il topic base
+                await self._mqtt_client.publish(
+                    base_topic,
+                    payload=b'',
+                    qos=1,
+                    retain=True
                 )
-              }
-              onToggle={async () => {
-                if (pompaAspirazioneOn) {
-                  await executeAction('pompa_aspirazione_off')
-                  setPompaAspirazioneOn(false)
-                } else {
-                  await executeAction('pompa_aspirazione_on')
-                  setPompaAspirazioneOn(true)
-                }
-              }}
-            />
-          </div>
-
-          {/* Pompa Acqua */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2C10.34 2 9 3.34 9 5V11C9 12.66 10.34 14 12 14C13.66 14 15 12.66 15 11V5C15 3.34 13.66 2 12 2Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
-                <path d="M12 14V20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M8 20H16" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <circle cx="12" cy="11" r="1.5" fill="#F4B342"/>
-              </svg>
-              <h3 style={{ color: '#F4B342', margin: 0 }}>
-                Pompa Acqua
-              </h3>
-            </div>
-            <PowerButton
-              label="Pompa Acqua"
-              isOn={pompaAcquaOn}
-              loading={
-                !!(
-                  actionLoading.pompa_acqua_on ||
-                  actionLoading.pompa_acqua_off
+                
+                # Pulisci anche i topic comuni per growbox (se applicabile)
+                if 'growbox' in base_topic.lower() or 'grow box' in base_topic.lower():
+                    # Pulisci i topic dei sensori comuni
+                    sensor_topics = [
+                        f"{base_topic}/temperature_1",
+                        f"{base_topic}/temperature_2",
+                        f"{base_topic}/temperature_3",
+                        f"{base_topic}/temperature_4",
+                        f"{base_topic}/humidity_1",
+                        f"{base_topic}/humidity_2",
+                        f"{base_topic}/humidity_3",
+                        f"{base_topic}/humidity_4",
+                        f"{base_topic}/water_level"
+                    ]
+                    for topic in sensor_topics:
+                        try:
+                            await self._mqtt_client.publish(
+                                topic,
+                                payload=b'',
+                                qos=1,
+                                retain=True
+                            )
+                        except Exception as e:
+                            print(f"⚠ Errore pulizia topic {topic}: {e}")
+                
+                print(f"🧹 Puliti messaggi retained per sensore {self.name} su {base_topic} e sottotopic")
+            else:
+                # Per topic normale, pulisci direttamente
+                await self._mqtt_client.publish(
+                    self.topic_status,
+                    payload=b'',
+                    qos=1,
+                    retain=True
                 )
-              }
-              onToggle={async () => {
-                if (pompaAcquaOn) {
-                  await executeAction('pompa_acqua_off')
-                  setPompaAcquaOn(false)
-                } else {
-                  await executeAction('pompa_acqua_on')
-                  setPompaAcquaOn(true)
-                }
-              }}
-            />
-          </div>
+                print(f"🧹 Puliti messaggi retained per sensore {self.name} su {self.topic_status}")
+        except Exception as e:
+            print(f"⚠ Errore pulizia messaggi retained per {self.name}: {e}")
+    
+    async def disconnect(self) -> None:
+        """Disconnette dal broker MQTT"""
+        try:
+            # Pulisci messaggi retained prima di disconnettere
+            await self.clear_retained_messages()
+            
+            if self._subscription_task:
+                self._subscription_task.cancel()
+                try:
+                    await self._subscription_task
+                except asyncio.CancelledError:
+                    pass
+            
+            if self._mqtt_client:
+                # Unsubscribe dal topic
+                try:
+                    await self._mqtt_client.unsubscribe(self.topic_status)
+                except:
+                    pass
+            
+            # Decrementa contatore sensori connessi
+            async with self._mqtt_client_lock:
+                if self._connected_sensors_count > 0:
+                    self._connected_sensors_count -= 1
+                print(f"📊 Sensori MQTT connessi: {self._connected_sensors_count}")
+                
+                # Se non ci sono più sensori connessi, chiudi la connessione MQTT condivisa
+                if self._connected_sensors_count == 0 and self._mqtt_client_connected:
+                    try:
+                        await self._mqtt_client.__aexit__(None, None, None)
+                        self._mqtt_client_connected = False
+                        print(f"🔌 Connessione MQTT condivisa chiusa (nessun sensore connesso)")
+                    except Exception as e:
+                        print(f"⚠ Errore chiusura connessione MQTT condivisa: {e}")
+            
+            self.connected = False
+            print(f"Disconnesso MQTT per sensore {self.name}")
+        except Exception as e:
+            print(f"Errore disconnessione MQTT per sensore {self.name}: {e}")
+    
+    def _topic_matches(self, topic: str, pattern: str) -> bool:
+        """Verifica se un topic corrisponde a un pattern (supporta wildcard # e +)"""
+        if not self.is_wildcard_topic:
+            return topic == pattern
+        
+        # Converti pattern wildcard in regex
+        # # = match tutto il resto
+        # + = match un livello
+        pattern_parts = pattern.split('/')
+        topic_parts = topic.split('/')
+        
+        if len(topic_parts) < len(pattern_parts):
+            return False
+        
+        for i, pattern_part in enumerate(pattern_parts):
+            if pattern_part == '#':
+                # Match tutto il resto
+                return True
+            elif pattern_part == '+':
+                # Match un livello qualsiasi
+                continue
+            elif pattern_part != topic_parts[i]:
+                return False
+        
+        # Se il pattern non finisce con #, devono avere la stessa lunghezza
+        if pattern_parts[-1] != '#' and len(topic_parts) != len(pattern_parts):
+            return False
+        
+        return True
+    
+    def _extract_data_from_topic(self, topic: str) -> Tuple[str, Any]:
+        """Estrae il tipo di dato dal topic (es: 'temperature' da 'shellies/shellyht-ABC123/sensor/temperature')"""
+        parts = topic.split('/')
+        if len(parts) >= 2:
+            # Ultimo elemento è il tipo di dato
+            data_type = parts[-1]
+            return data_type, None
+        return "value", None
+    
+    async def _message_loop(self) -> None:
+        """Loop per ricevere messaggi MQTT"""
+        try:
+            async for message in self._mqtt_client.messages:
+                try:
+                    # Parse del messaggio
+                    topic = str(message.topic)
+                    
+                    # Verifica se il messaggio è retained e se il sensore è offline
+                    is_retained = getattr(message, 'retain', False)
+                    if is_retained:
+                        # Calcola il tempo trascorso dall'ultimo aggiornamento
+                        time_since_last_update = (datetime.now() - self.last_update).total_seconds()
+                        
+                        # Se non abbiamo ricevuto messaggi recenti (più di 60 secondi), ignora i retained
+                        # Questo evita di mostrare dati vecchi quando il sensore è offline
+                        if time_since_last_update > 60:
+                            print(f"⚠ Sensore {self.name}: Ignorato messaggio retained su {topic} (sensore offline da {time_since_last_update:.1f}s)")
+                            continue
+                        else:
+                            # Messaggio retained ma sensore ancora attivo (probabilmente primo messaggio dopo connessione)
+                            print(f"ℹ Sensore {self.name}: Ricevuto messaggio retained su {topic} (sensore attivo)")
+                    
+                    # Verifica se il topic corrisponde al pattern (supporta wildcard)
+                    if not self._topic_matches(topic, self.topic_status):
+                        # Non loggare messaggi non corrispondenti (comportamento normale con client MQTT condiviso)
+                        continue
+                    
+                    # Log per debug solo quando il topic corrisponde (solo per sensore energia)
+                    if self.name == "energia":
+                        print(f"🔍 Sensore {self.name}: Messaggio MQTT ricevuto su topic: {topic}")
+                        print(f"   Topic atteso: {self.topic_status}")
+                        print(f"   Retained: {is_retained}")
+                    
+                    # Prova a parsare come JSON, altrimenti come valore semplice
+                    try:
+                        payload = json.loads(message.payload.decode())
+                        # Log dettagliato per debug (solo per primi messaggi o se contiene dati interessanti)
+                        if self.name == "energia" or (isinstance(payload, dict) and ("method" in payload or "em1" in str(payload))):
+                            print(f"📨 Sensore {self.name}: Messaggio MQTT ricevuto su {topic}")
+                            print(f"   Payload (primi 500 char): {json.dumps(payload, indent=2)[:500]}")
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        # Se non è JSON, prova come valore numerico o stringa
+                        payload_str = message.payload.decode()
+                        try:
+                            # Prova come float
+                            payload = float(payload_str)
+                        except ValueError:
+                            try:
+                                # Prova come int
+                                payload = int(payload_str)
+                            except ValueError:
+                                # Fallback a stringa
+                                payload = payload_str
+                    
+                    # Se è un wildcard topic, aggrega i dati
+                    if self.is_wildcard_topic:
+                        # Estrai il tipo di dato dal topic (es: 'temperature' da '.../sensor/temperature')
+                        data_type, _ = self._extract_data_from_topic(topic)
+                        
+                        # Aggrega nel dict
+                        if not hasattr(self, '_aggregated_data'):
+                            self._aggregated_data = {}
+                        self._aggregated_data[data_type] = payload
+                        
+                        # Aggiorna _last_data con tutti i dati aggregati
+                        self._last_data = self._aggregated_data.copy()
+                        
+                        print(f"Sensore {self.name}: Ricevuto messaggio MQTT su {topic} (tipo: {data_type}): {payload}")
+                        print(f"  Dati aggregati: {self._aggregated_data}")
+                    else:
+                        # Topic normale, usa il payload direttamente (raw, senza processamento)
+                        # Il processamento specifico del plugin verrà fatto nel plugin stesso
+                        self._last_data = payload if isinstance(payload, dict) else {"value": payload}
+                    
+                    self.update_last_update()
+                    
+                    # Crea SensorData con timestamp preciso
+                    sensor_data = SensorData(
+                        sensor_name=self.name,
+                        timestamp=datetime.now(),
+                        data=self._last_data,
+                        status="ok"
+                    )
+                    
+                    # Salva sempre in MongoDB (rimosso il limite di tempo)
+                    if self.__class__._mongo_client:
+                        try:
+                            await self.__class__._mongo_client.save_sensor_data(sensor_data)
+                        except Exception as e:
+                            print(f"Errore salvataggio MongoDB MQTT per {self.name}: {e}")
+                    
+                    # Notifica AutomationService se presente (stampa log immediatamente)
+                    if self.__class__._automation_service:
+                        try:
+                            await self.__class__._automation_service.on_sensor_data(self.name, sensor_data)
+                        except Exception as e:
+                            print(f"Errore automazione MQTT per {self.name}: {e}")
+                    
+                    # Notifica callbacks registrati
+                    for callback in self._message_callbacks:
+                        try:
+                            await callback(self.name, self._last_data)
+                        except Exception as e:
+                            print(f"Errore in callback MQTT per {self.name}: {e}")
+                except json.JSONDecodeError as e:
+                    print(f"Errore parsing JSON MQTT per {self.name}: {e}")
+                except Exception as e:
+                    print(f"Errore gestione messaggio MQTT per {self.name}: {e}")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            print(f"Errore nel message loop MQTT per {self.name}: {e}")
+            self.connected = False
+    
+    def register_message_callback(self, callback: Callable) -> None:
+        """Registra un callback che viene chiamato quando arrivano messaggi"""
+        self._message_callbacks.append(callback)
+    
+    async def read_data(self) -> SensorData:
+        """Legge l'ultimo dato ricevuto via MQTT (aggregato se wildcard topic)"""
+        if self._last_data is not None:
+            return SensorData(
+                sensor_name=self.name,
+                timestamp=datetime.now(),
+                data=self._last_data,
+                status="ok"
+            )
+        else:
+            return SensorData(
+                sensor_name=self.name,
+                timestamp=datetime.now(),
+                data={},
+                status="ok",
+                error="Nessun dato disponibile"
+            )
+    
+    async def is_connected(self) -> bool:
+        """Verifica se la connessione MQTT è attiva"""
+        return self.connected and self._mqtt_client is not None
+    
+    async def execute_action(self, action_name: str, action_path: str) -> Dict[str, Any]:
+        """Pubblica un comando sul topic MQTT del sensore"""
+        try:
+            if not self.connected:
+                await self.connect()
+            
+            # Il payload del comando può essere passato come action_path (JSON string)
+            # oppure costruito da action_name
+            try:
+                payload = json.loads(action_path) if action_path else {}
+            except json.JSONDecodeError:
+                # Se non è JSON, costruisci payload semplice
+                payload = {"action": action_name}
+                if action_path:
+                    payload["path"] = action_path
+            
+            # Pubblica sul topic di comando
+            await self._mqtt_client.publish(
+                self.topic_command,
+                payload=json.dumps(payload).encode(),
+                qos=1
+            )
+            
+            print(f"Comando MQTT inviato a {self.name}: {action_name} su {self.topic_command}")
+            
+            return {
+                "success": True,
+                "status_code": 200,
+                "data": {"topic": self.topic_command, "payload": payload},
+                "error": None
+            }
+            
+        except Exception as e:
+            error_msg = str(e)
+            print(f"Errore invio comando MQTT per {self.name}: {error_msg}")
+            return {
+                "success": False,
+                "status_code": None,
+                "data": None,
+                "error": error_msg
+            }
 
-          {/* Resistenza Scaldante */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L13.09 8.26L20 9L13.09 9.74L12 16L10.91 9.74L4 9L10.91 8.26L12 2Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
-                <path d="M12 16V22" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <h3 style={{ color: '#F4B342', margin: 0 }}>
-                Resistenza Scaldante
-              </h3>
-            </div>
-            <PowerButton
-              label="Resistenza"
-              isOn={resistenzaOn}
-              loading={
-                !!(
-                  actionLoading.resistenza_on ||
-                  actionLoading.resistenza_off
-                )
-              }
-              onToggle={async () => {
-                if (resistenzaOn) {
-                  await executeAction('resistenza_off')
-                  setResistenzaOn(false)
-                } else {
-                  await executeAction('resistenza_on')
-                  setResistenzaOn(true)
-                }
-              }}
-            />
-          </div>
-
-          {/* Luce LED */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M9 21H15" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M12 3V9" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M12 9C15.3137 9 18 11.6863 18 15C18 18.3137 15.3137 21 12 21C8.68629 21 6 18.3137 6 15C6 11.6863 8.68629 9 12 9Z" stroke="#F4B342" strokeWidth="2" fill="none"/>
-                <path d="M12 9L14 7L12 5L10 7L12 9Z" stroke="#F4B342" strokeWidth="2" strokeLinejoin="round"/>
-              </svg>
-              <h3 style={{ color: '#F4B342', margin: 0 }}>
-                Luce LED
-              </h3>
-            </div>
-            <PowerButton
-              label="Luce LED"
-              isOn={luceLedOn}
-              loading={
-                !!(
-                  actionLoading.luce_led_on ||
-                  actionLoading.luce_led_off
-                )
-              }
-              onToggle={async () => {
-                if (luceLedOn) {
-                  await executeAction('luce_led_off')
-                  setLuceLedOn(false)
-                } else {
-                  await executeAction('luce_led_on')
-                  setLuceLedOn(true)
-                }
-              }}
-            />
-          </div>
-
-          {/* Ventola */}
-          <div style={{
-            backgroundColor: 'rgba(143, 1, 119, 0.3)',
-            padding: '1.5rem',
-            borderRadius: '12px',
-            border: '2px solid #8F0177',
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center'
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="12" cy="12" r="8" stroke="#F4B342" strokeWidth="2" fill="none"/>
-                <path d="M12 4V8" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M12 16V20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M4 12H8" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M16 12H20" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M6.34314 6.34314L9.17157 9.17157" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M14.8284 14.8284L17.6569 17.6569" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M17.6569 6.34314L14.8284 9.17157" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-                <path d="M9.17157 14.8284L6.34314 17.6569" stroke="#F4B342" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <h3 style={{ color: '#F4B342', margin: 0 }}>
-                Ventola
-              </h3>
-            </div>
-            <PowerButton
-              label="Ventola"
-              isOn={ventolaOn}
-              loading={
-                !!(
-                  actionLoading.ventola_on ||
-                  actionLoading.ventola_off
-                )
-              }
-              onToggle={async () => {
-                if (ventolaOn) {
-                  await executeAction('ventola_off')
-                  setVentolaOn(false)
-                } else {
-                  await executeAction('ventola_on')
-                  setVentolaOn(true)
-                }
-              }}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-export default ArduinoGrowBoxControl
