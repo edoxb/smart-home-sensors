@@ -73,7 +73,27 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
       console.log('📊 Dati Shelly Pro 50EM:', result)
       
       if (result.success && result.data) {
-        setStatus(result.data)
+        // Assicurati che la struttura dati sia corretta
+        const safeData = {
+          channels: result.data.channels || {},
+          energy_data: result.data.energy_data || {},
+          wifi: result.data.wifi || {},
+          sys: result.data.sys || {},
+          device: result.data.device || {},
+          mqtt: result.data.mqtt || {},
+          ts: result.data.ts
+        }
+        setStatus(safeData)
+      } else {
+        // Se non ci sono dati, mantieni la struttura vuota
+        setStatus({
+          channels: {},
+          energy_data: {},
+          wifi: {},
+          sys: {},
+          device: {},
+          mqtt: {}
+        })
       }
     } catch (error) {
       console.error('Errore fetch status:', error)
@@ -84,11 +104,18 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
   }
 
   useEffect(() => {
-    fetchStatus()
+    // Esegui subito il fetch
+    fetchStatus().catch(err => {
+      console.error('Errore nel fetch iniziale:', err)
+      setError('Errore nel caricamento dei dati')
+    })
     
     // Aggiorna ogni 5 secondi
     const interval = setInterval(() => {
-      fetchStatus()
+      fetchStatus().catch(err => {
+        console.error('Errore nel fetch periodico:', err)
+        // Non impostare error per i fetch periodici, solo log
+      })
     }, 5000)
     
     return () => clearInterval(interval)
@@ -108,10 +135,53 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
     return `${wh.toFixed(0)} Wh`
   }
 
-  const channel0 = status.channels["0"]
-  const channel1 = status.channels["1"]
-  const energy0 = status.energy_data["0"]
-  const energy1 = status.energy_data["1"]
+  // Estrai i dati con controlli di sicurezza
+  const channel0 = status?.channels?.["0"]
+  const channel1 = status?.channels?.["1"]
+  const energy0 = status?.energy_data?.["0"]
+  const energy1 = status?.energy_data?.["1"]
+
+  // Gestione errori per evitare crash
+  if (error) {
+    return (
+      <div style={{
+        width: '100%',
+        minHeight: '100vh',
+        padding: '2rem',
+        backgroundColor: '#360185',
+        color: '#FFFFFF',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}>
+        <div style={{
+          padding: '2rem',
+          backgroundColor: '#F44336',
+          borderRadius: '12px',
+          maxWidth: '600px',
+          textAlign: 'center'
+        }}>
+          <h2 style={{ color: '#FFFFFF', marginBottom: '1rem' }}>Errore</h2>
+          <p style={{ color: '#FFFFFF', marginBottom: '1rem' }}>{error}</p>
+          <button
+            onClick={() => window.history.back()}
+            style={{
+              padding: '0.75rem 2rem',
+              backgroundColor: '#DE1A58',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: 'pointer',
+              fontWeight: 'bold'
+            }}
+          >
+            ← Torna Indietro
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -179,8 +249,8 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
                 borderRadius: '8px',
                 textAlign: 'center'
               }}>
-                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: getPowerColor(channel0.act_power) }}>
-                  {channel0.act_power.toFixed(1)} W
+                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: getPowerColor(channel0?.act_power) }}>
+                  {channel0?.act_power?.toFixed(1) || '0.0'} W
                 </div>
                 <div style={{ fontSize: '0.9rem', color: '#F4B342', marginTop: '0.5rem' }}>
                   Potenza Attiva
@@ -190,23 +260,23 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
               <div style={{ display: 'grid', gap: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Tensione:</span>
-                  <strong>{channel0.voltage.toFixed(1)} V</strong>
+                  <strong>{channel0?.voltage?.toFixed(1) || '0.0'} V</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Corrente:</span>
-                  <strong>{channel0.current.toFixed(3)} A</strong>
+                  <strong>{channel0?.current?.toFixed(3) || '0.000'} A</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Potenza Apparente:</span>
-                  <strong>{channel0.aprt_power.toFixed(1)} VA</strong>
+                  <strong>{channel0?.aprt_power?.toFixed(1) || '0.0'} VA</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Power Factor:</span>
-                  <strong>{channel0.pf.toFixed(2)}</strong>
+                  <strong>{channel0?.pf?.toFixed(2) || '0.00'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Frequenza:</span>
-                  <strong>{channel0.freq.toFixed(1)} Hz</strong>
+                  <strong>{channel0?.freq?.toFixed(1) || '0.0'} Hz</strong>
                 </div>
                 {energy0 && (
                   <div style={{
@@ -220,7 +290,7 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
                       Energia Totale
                     </div>
                     <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-                      {formatEnergy(energy0.total_act_energy)}
+                      {formatEnergy(energy0?.total_act_energy || 0)}
                     </div>
                   </div>
                 )}
@@ -258,8 +328,8 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
                 borderRadius: '8px',
                 textAlign: 'center'
               }}>
-                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: getPowerColor(channel1.act_power) }}>
-                  {channel1.act_power.toFixed(1)} W
+                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: getPowerColor(channel1?.act_power) }}>
+                  {channel1?.act_power?.toFixed(1) || '0.0'} W
                 </div>
                 <div style={{ fontSize: '0.9rem', color: '#F4B342', marginTop: '0.5rem' }}>
                   Potenza Attiva
@@ -269,23 +339,23 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
               <div style={{ display: 'grid', gap: '1rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Tensione:</span>
-                  <strong>{channel1.voltage.toFixed(1)} V</strong>
+                  <strong>{channel1?.voltage?.toFixed(1) || '0.0'} V</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Corrente:</span>
-                  <strong>{channel1.current.toFixed(3)} A</strong>
+                  <strong>{channel1?.current?.toFixed(3) || '0.000'} A</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Potenza Apparente:</span>
-                  <strong>{channel1.aprt_power.toFixed(1)} VA</strong>
+                  <strong>{channel1?.aprt_power?.toFixed(1) || '0.0'} VA</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Power Factor:</span>
-                  <strong>{channel1.pf.toFixed(2)}</strong>
+                  <strong>{channel1?.pf?.toFixed(2) || '0.00'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: '#F4B342' }}>Frequenza:</span>
-                  <strong>{channel1.freq.toFixed(1)} Hz</strong>
+                  <strong>{channel1?.freq?.toFixed(1) || '0.0'} Hz</strong>
                 </div>
                 {energy1 && (
                   <div style={{
@@ -299,7 +369,7 @@ export default function ShellyPro50EMControl({ sensorName }: ShellyPro50EMContro
                       Energia Totale
                     </div>
                     <div style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>
-                      {formatEnergy(energy1.total_act_energy)}
+                      {formatEnergy(energy1?.total_act_energy || 0)}
                     </div>
                   </div>
                 )}

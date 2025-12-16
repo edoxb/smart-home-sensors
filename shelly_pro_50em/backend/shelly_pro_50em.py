@@ -103,6 +103,9 @@ def _extract_shelly_pro_50em_data(raw_data: Dict[str, Any]) -> Dict[str, Any]:
 router = APIRouter(prefix="/sensors/shelly-pro-50em", tags=["shelly-pro-50em"])
 
 
+# Cache per aggregare i dati nel tempo (per gestire messaggi parziali)
+_sensor_data_cache: Dict[str, Dict[str, Any]] = {}
+
 @router.get("/status")
 async def get_status(
     sensor_name: str = Query(..., description="Nome del sensore"),
@@ -111,6 +114,7 @@ async def get_status(
     """
     Ottiene lo stato completo del dispositivo Shelly Pro 50EM con dati formattati.
     Estrae i dati dai messaggi RPC Shelly e li formatta per il frontend.
+    Aggrega i dati nel tempo per gestire messaggi MQTT parziali.
     """
     if sensor_name not in business_logic.sensors:
         raise HTTPException(status_code=404, detail=f"Sensore '{sensor_name}' non trovato")
@@ -122,27 +126,71 @@ async def get_status(
         data = await business_logic.read_sensor_data(sensor_name)
         if data and data.data:
             # Estrai e formatta i dati dai messaggi RPC Shelly
-            formatted_data = _extract_shelly_pro_50em_data(data.data)
+            new_formatted_data = _extract_shelly_pro_50em_data(data.data)
             
-            return {
-                "success": True,
-                "data": formatted_data,
-                "raw_data": data.data,  # Mantieni anche i dati grezzi per debug
-                "timestamp": data.timestamp.isoformat() if data.timestamp else None
-            }
-        else:
-            return {
-                "success": True,
-                "data": {
+            # Aggrega con i dati precedenti (mantieni i dati vecchi se non arrivano nel nuovo messaggio)
+            if sensor_name not in _sensor_data_cache:
+                _sensor_data_cache[sensor_name] = {
                     "channels": {},
                     "energy_data": {},
                     "wifi": {},
                     "sys": {},
                     "device": {},
-                    "mqtt": {}
-                },
-                "message": "Nessun dato disponibile ancora"
+                    "mqtt": {},
+                    "ts": None
+                }
+            
+            cached_data = _sensor_data_cache[sensor_name]
+            
+            # Aggiorna i canali solo se presenti nel nuovo messaggio
+            if new_formatted_data.get("channels"):
+                for channel_id, channel_data in new_formatted_data["channels"].items():
+                    cached_data["channels"][channel_id] = channel_data
+            
+            # Aggiorna i dati energia solo se presenti nel nuovo messaggio
+            if new_formatted_data.get("energy_data"):
+                for energy_id, energy_data in new_formatted_data["energy_data"].items():
+                    cached_data["energy_data"][energy_id] = energy_data
+            
+            # Aggiorna le altre informazioni se presenti
+            if new_formatted_data.get("wifi"):
+                cached_data["wifi"] = new_formatted_data["wifi"]
+            if new_formatted_data.get("sys"):
+                cached_data["sys"] = new_formatted_data["sys"]
+            if new_formatted_data.get("device"):
+                cached_data["device"] = new_formatted_data["device"]
+            if new_formatted_data.get("mqtt"):
+                cached_data["mqtt"] = new_formatted_data["mqtt"]
+            if new_formatted_data.get("ts"):
+                cached_data["ts"] = new_formatted_data["ts"]
+            
+            return {
+                "success": True,
+                "data": cached_data.copy(),
+                "raw_data": data.data,  # Mantieni anche i dati grezzi per debug
+                "timestamp": data.timestamp.isoformat() if data.timestamp else None
             }
+        else:
+            # Se non ci sono dati nuovi, restituisci i dati cached se disponibili
+            if sensor_name in _sensor_data_cache:
+                return {
+                    "success": True,
+                    "data": _sensor_data_cache[sensor_name].copy(),
+                    "message": "Dati dalla cache (nessun nuovo messaggio)"
+                }
+            else:
+                return {
+                    "success": True,
+                    "data": {
+                        "channels": {},
+                        "energy_data": {},
+                        "wifi": {},
+                        "sys": {},
+                        "device": {},
+                        "mqtt": {}
+                    },
+                    "message": "Nessun dato disponibile ancora"
+                }
     else:
         raise HTTPException(
             status_code=400,
@@ -258,4 +306,5 @@ async def get_device_info(
         "data": {},
         "message": "Informazioni dispositivo non disponibili"
     }
+
 
