@@ -74,94 +74,75 @@ async def _get_actuator_states(sensor_name: str, mongo_client: MongoClientWrappe
         return {}
 
 async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[MongoClientWrapper], sensor_name: str) -> Dict[str, Any]:
-    """Calcola i target temperatura e umidità in base alla fase"""
-    if not phase:
-        return {
-            "temp_target_min": None,
-            "temp_target_max": None,
-            "hum_target_min": None,
-            "hum_target_max": None
-        }
-    
-    if phase == "piantina":
-        # Target: 65-70% umidità, 20-25°C con luci accese, 4-5°C in meno con luci spente
-        led_on = _led_state.get(sensor_name, {}).get("is_on", False)
-        if led_on:
-            return {
-                "temp_target_min": 20,
-                "temp_target_max": 25,
-                "hum_target_min": 65,
-                "hum_target_max": 70
-            }
-        else:
-            return {
-                "temp_target_min": 15,  # 20-5
-                "temp_target_max": 21,  # 25-4
-                "hum_target_min": 65,
-                "hum_target_max": 70
-            }
-    
-    elif phase == "vegetativa":
-        # Umidità che diminuisce del 5% ogni settimana, 22-28°C con luci accese, 4-5°C in meno con luci spente
-        weeks_elapsed = 0
-        if mongo_client and mongo_client.db:
-            try:
-                # Nota: questa funzione è sincrona, ma mongo_client.db.find_one è async
-                # Per ora usiamo un approccio semplificato
-                # In produzione, questa funzione dovrebbe essere async o usare un valore cached
-                pass  # Calcolo settimane sarà fatto nella funzione async _handle_vegetativa_phase
-                    start_date = config.get("vegetative_start_date") or config.get("cultivation_start_date")
-                    if start_date:
-                        if isinstance(start_date, str):
-                            try:
-                                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                            except:
-                                try:
-                                    start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
-                                except:
-                                    start_date = datetime.now()
-                        elif not isinstance(start_date, datetime):
-                            start_date = datetime.now()
-                        weeks_elapsed = (datetime.now() - start_date).days // 7
-            except:
-                pass
-        
-        base_hum = 65
-        hum_reduction = weeks_elapsed * 5
-        hum_min = max(40, base_hum - hum_reduction)
-        hum_max = max(45, base_hum - hum_reduction + 5)
-        
-        led_on = _led_state.get(sensor_name, {}).get("is_on", False)
-        if led_on:
-            return {
-                "temp_target_min": 22,
-                "temp_target_max": 28,
-                "hum_target_min": hum_min,
-                "hum_target_max": hum_max
-            }
-        else:
-            return {
-                "temp_target_min": 17,  # 22-5
-                "temp_target_max": 24,  # 28-4
-                "hum_target_min": hum_min,
-                "hum_target_max": hum_max
-            }
-    
-    elif phase == "fioritura":
-        # Target: 40-50% umidità, 20-26°C con luci accese
-        return {
-            "temp_target_min": 20,
-            "temp_target_max": 26,
-            "hum_target_min": 40,
-            "hum_target_max": 50
-        }
-    
-    return {
+    """Calcola i target temperatura e umidità in base alla fase (con settimane trascorse)"""
+    targets = {
         "temp_target_min": None,
         "temp_target_max": None,
         "hum_target_min": None,
-        "hum_target_max": None
+        "hum_target_max": None,
+        "min_hours_per_day": 18
     }
+
+    if not phase:
+        return targets
+
+    weeks_elapsed = 0
+    if mongo_client and mongo_client.db:
+        try:
+            config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
+            if config:
+                start_date_str = config.get("vegetative_start_date") or config.get("cultivation_start_date")
+                if start_date_str:
+                    if isinstance(start_date_str, str):
+                        try:
+                            start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+                        except ValueError:
+                            try:
+                                start_date = datetime.strptime(start_date_str, "%Y-%m-%dT%H:%M:%S.%f")
+                            except ValueError:
+                                start_date = datetime.now()
+                    elif isinstance(start_date_str, datetime):
+                        start_date = start_date_str
+                    else:
+                        start_date = datetime.now()
+                    weeks_elapsed = (datetime.now() - start_date).days // 7
+        except Exception as e:
+            print(f"Errore calcolo settimane trascorse: {e}")
+
+    led_on = await _check_led_state(sensor_name)
+
+    if phase == "piantina":
+        targets["hum_target_min"] = 65
+        targets["hum_target_max"] = 70
+        if led_on:
+            targets["temp_target_min"] = 20
+            targets["temp_target_max"] = 25
+        else:
+            targets["temp_target_min"] = 15  # 20-5
+            targets["temp_target_max"] = 21  # 25-4
+        targets["min_hours_per_day"] = 18
+
+    elif phase == "vegetativa":
+        base_hum = 65
+        hum_reduction = weeks_elapsed * 5
+        targets["hum_target_min"] = max(40, base_hum - hum_reduction)
+        targets["hum_target_max"] = max(45, base_hum - hum_reduction + 5)
+        if led_on:
+            targets["temp_target_min"] = 22
+            targets["temp_target_max"] = 28
+        else:
+            targets["temp_target_min"] = 17  # 22-5
+            targets["temp_target_max"] = 24  # 28-4
+        targets["min_hours_per_day"] = 18
+
+    elif phase == "fioritura":
+        targets["hum_target_min"] = 40
+        targets["hum_target_max"] = 50
+        targets["temp_target_min"] = 20
+        targets["temp_target_max"] = 26
+        targets["min_hours_per_day"] = 18  # anche in fioritura garantiamo minimo 18h logica interna
+
+    return targets
 
 @router.post("/{sensor_name}/fase")
 async def set_fase(
