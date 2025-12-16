@@ -146,23 +146,14 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   }>({})
 
   // Funzione unificata per caricare tutti i dati (sensori + stato coltivazione)
-  const fetchAllData = useCallback(async (showLoading = false) => {
+  const fetchAllData = useCallback(async () => {
     try {
-      if (showLoading) {
-        setLoading(true)
-      }
+      setLoading(true)
       const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stato-coltivazione`)
       if (!response.ok) {
         throw new Error(`Errore ${response.status}`)
       }
       const result = await response.json()
-      
-      console.log('📥 Dati ricevuti da stato-coltivazione:', {
-        has_actuator_states: !!result.actuator_states,
-        has_targets: !!result.targets,
-        has_sensor_data: !!result.sensor_data,
-        has_current_values: !!result.current_values
-      })
       
       // Aggiorna dati sensore
       const newData = result.sensor_data || {}
@@ -181,13 +172,14 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         setFase(result.growth_phase)
       }
       
-      // Aggiorna stato attuatori (sempre, anche se vuoto)
-      const actuatorStates = result.actuator_states || {}
-      setLuceLedOn(actuatorStates.luce_led === true)
-      setVentolaOn(actuatorStates.ventola === true)
-      setResistenzaOn(actuatorStates.resistenza === true)
-      setPompaAspirazioneOn(actuatorStates.pompa_aspirazione === true)
-      setPompaAcquaOn(actuatorStates.pompa_acqua === true)
+      // Aggiorna stato attuatori
+      if (result.actuator_states) {
+        setLuceLedOn(result.actuator_states.luce_led || false)
+        setVentolaOn(result.actuator_states.ventola || false)
+        setResistenzaOn(result.actuator_states.resistenza || false)
+        setPompaAspirazioneOn(result.actuator_states.pompa_aspirazione || false)
+        setPompaAcquaOn(result.actuator_states.pompa_acqua || false)
+      }
       
       // Aggiorna target
       if (result.targets) {
@@ -203,9 +195,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Errore sconosciuto')
     } finally {
-      if (showLoading) {
-        setLoading(false)
-      }
+      setLoading(false)
     }
   }, [sensorName])
 
@@ -368,8 +358,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       timeoutRef.current = setTimeout(async () => {
         if (!isMounted) return
         try {
-          // Usa fetchAllData che carica tutto in una singola richiesta (senza loading per evitare blink)
-          await fetchAllData(false)
+          // Usa fetchAllData che carica tutto in una singola richiesta
+          await fetchAllData()
           if (isMounted) {
             scheduleNextFetch()
           }
@@ -382,8 +372,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       }, interval)
     }
     
-    // Prima chiamata immediata (con loading)
-    fetchAllData(true).then(() => {
+    // Prima chiamata immediata
+    fetchAllData().then(() => {
       if (isMounted) {
         scheduleNextFetch()
       }
@@ -412,7 +402,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
         <p>Errore: {error}</p>
         <button
           type="button"
-          onClick={() => fetchAllData(true)}
+          onClick={fetchAllData}
           style={{
             marginTop: '1rem',
             padding: '0.5rem 1rem',
