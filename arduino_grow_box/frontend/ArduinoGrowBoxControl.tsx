@@ -164,7 +164,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   // Carica la fase corrente all'avvio
   const fetchFase = useCallback(async () => {
     try {
-      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase`)
+      const encodedName = encodeURIComponent(sensorName)
+      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fase`)
       if (response.ok) {
         const result = await response.json()
         setFase(result.fase || null)
@@ -177,7 +178,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   // Carica lo stato della coltivazione
   const fetchCultivationStatus = useCallback(async () => {
     try {
-      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stato-coltivazione`)
+      const encodedName = encodeURIComponent(sensorName)
+      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/stato-coltivazione`)
       if (response.ok) {
         const result = await response.json()
         setCultivationActive(result.cultivation_active || false)
@@ -198,7 +200,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     
     setCultivationLoading(true)
     try {
-      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/inizia-coltivazione`, {
+      const encodedName = encodeURIComponent(sensorName)
+      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/inizia-coltivazione`, {
         method: 'POST'
       })
       if (!response.ok) {
@@ -226,7 +229,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
     
     setCultivationLoading(true)
     try {
-      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fine-coltivazione`, {
+      const encodedName = encodeURIComponent(sensorName)
+      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fine-coltivazione`, {
         method: 'POST'
       })
       if (!response.ok) {
@@ -249,7 +253,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const setFaseHandler = async (nuovaFase: string) => {
     setFaseLoading(true)
     try {
-      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/fase?fase=${nuovaFase}`, {
+      const encodedName = encodeURIComponent(sensorName)
+      const response = await fetch(`/sensors/arduino-grow-box/${encodedName}/fase?fase=${nuovaFase}`, {
         method: 'POST'
       })
       if (!response.ok) {
