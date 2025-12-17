@@ -46,6 +46,7 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
         return targets
 
     weeks_elapsed = 0
+    config = None
     if mongo_client is not None and mongo_client.db is not None:
         try:
             config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
@@ -68,7 +69,12 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
         except Exception as e:
             print(f"Errore calcolo settimane trascorse: {e}")
 
-    led_on = await _check_led_state(sensor_name)
+    # LED acceso? usa attuatore, poi campo led_is_on, poi cache
+    led_on = False
+    if config:
+        led_on = bool(config.get("actuator_luce_led_state") or config.get("led_is_on"))
+    if not led_on:
+        led_on = await _check_led_state(sensor_name)
 
     if phase == "piantina":
         targets["hum_target_min"] = 65
@@ -110,12 +116,24 @@ async def _load_led_state(sensor_name: str, mongo_client: MongoClientWrapper):
     if mongo_client is None or mongo_client.db is None:
         _led_state[sensor_name] = {"is_on": False, "last_toggle": now, "daily_on_seconds": 0.0, "last_reset": now}
         return _led_state[sensor_name]
+
     doc = await mongo_client.db.sensor_configs.find_one(
         {"name": sensor_name},
-        {"led_is_on": 1, "led_last_toggle": 1, "led_daily_on_seconds": 1, "led_last_reset": 1},
+        {
+            "led_is_on": 1,
+            "led_last_toggle": 1,
+            "led_daily_on_seconds": 1,
+            "led_last_reset": 1,
+            "actuator_luce_led_state": 1,
+        },
     )
+    actuator_on = bool(doc.get("actuator_luce_led_state", False)) if doc else False
+    is_on = bool(doc.get("led_is_on", False)) if doc else False
+    if actuator_on:
+        is_on = True  # l'attuatore vince
+
     _led_state[sensor_name] = {
-        "is_on": bool(doc.get("led_is_on", False)) if doc else False,
+        "is_on": is_on,
         "last_toggle": doc.get("led_last_toggle", now) if doc else now,
         "daily_on_seconds": float(doc.get("led_daily_on_seconds", 0)) if doc else 0.0,
         "last_reset": doc.get("led_last_reset", now) if doc else now,
@@ -284,6 +302,10 @@ async def get_stato_coltivazione(sensor_name: str, mongo_client: MongoClientWrap
             print(f"⚠️ Errore recupero dati sensore: {e}")
 
         led_state = await _load_led_state(sensor_name, mongo_client)
+        if actuator_states:
+            if actuator_states.get("luce_led") != led_state.get("is_on"):
+                led_state["is_on"] = actuator_states.get("luce_led", False)
+                led_state["last_toggle"] = datetime.now()
         minutes_on, minutes_until_on, minutes_until_off = _compute_led_metrics(led_state, targets.get("min_hours_per_day", 18))
 
         return {
@@ -298,7 +320,6 @@ async def get_stato_coltivazione(sensor_name: str, mongo_client: MongoClientWrap
             "current_values": {"avg_temperature": avg_temp, "avg_humidity": avg_hum},
             "sensor_data": sensor_data_dict,
             "led_status": {
-                "is_on": led_state.get("is_on", False),
                 "minutes_on_today": minutes_on,
                 "minutes_until_on": minutes_until_on,
                 "minutes_until_off": minutes_until_off,
@@ -526,7 +547,15 @@ async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
     mc = dep_mongo_client
     state = await _load_led_state(sensor_name, mc)
 
-    # reset giornaliero
+    # riallinea con attuatore se discordante
+    actuator_on = False
+    if mc is not None and mc.db is not None:
+        doc = await mc.db.sensor_configs.find_one({"name": sensor_name}, {"actuator_luce_led_state": 1})
+        actuator_on = bool(doc.get("actuator_luce_led_state", False)) if doc else False
+    if actuator_on != state["is_on"]:
+        state["is_on"] = actuator_on
+        state["last_toggle"] = now
+
     if state["last_reset"].date() != now.date():
         state["daily_on_seconds"] = 0.0
         state["last_reset"] = now
@@ -535,7 +564,6 @@ async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
     elapsed = (now - state["last_toggle"]).total_seconds()
 
     if state["is_on"]:
-        # accumula tempo acceso
         on_seconds = state["daily_on_seconds"] + elapsed
         if on_seconds >= min_hours_per_day * 3600:
             await _execute_action_safe(sensor_name, "luce_led_off")
@@ -543,7 +571,6 @@ async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18):
         else:
             state["daily_on_seconds"] = on_seconds
     else:
-        # periodo off minimo
         off_required = max(0, 24 - min_hours_per_day) * 3600
         off_elapsed = elapsed
         if off_elapsed >= off_required and state["daily_on_seconds"] < min_hours_per_day * 3600:
