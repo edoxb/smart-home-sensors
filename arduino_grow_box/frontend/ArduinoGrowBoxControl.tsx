@@ -560,4 +560,3 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
 }
 
 export default ArduinoGrowBoxControl
- 
