@@ -578,7 +578,7 @@ async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optio
         pass
     
     weeks_elapsed = 0
-    if mongo_client and mongo_client.db:
+    if mongo_client and mongo_client.db is not None:
         try:
             config = await mongo_client.db.sensor_configs.find_one({"name": sensor_name})
             if config:
