@@ -1,6 +1,3 @@
-# Codice da aggiungere al file backend/arduino_grow_box.py nel repository GitHub
-# https://github.com/edoxb/smart-home-sensors/tree/main/arduino_grow_box
-
 from fastapi import APIRouter, HTTPException, Depends, Query
 from app.dependencies import get_business_logic, get_mongo_client
 from app.services.business_logic import BusinessLogic
