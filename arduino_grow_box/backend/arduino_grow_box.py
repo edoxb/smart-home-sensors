@@ -94,28 +94,9 @@ async def _get_targets_for_phase(phase: Optional[str], mongo_client: Optional[Mo
     
     elif phase == "vegetativa":
         # Umidità che diminuisce del 5% ogni settimana, 22-28°C con luci accese, 4-5°C in meno con luci spente
+        # Nota: il calcolo delle settimane viene fatto in _handle_vegetativa_phase
+        # Qui usiamo valori di default (settimana 0)
         weeks_elapsed = 0
-        if mongo_client and mongo_client.db:
-            try:
-                # Nota: questa funzione è sincrona, ma mongo_client.db.find_one è async
-                # Per ora usiamo un approccio semplificato
-                # In produzione, questa funzione dovrebbe essere async o usare un valore cached
-                pass  # Calcolo settimane sarà fatto nella funzione async _handle_vegetativa_phase
-                    start_date = config.get("vegetative_start_date") or config.get("cultivation_start_date")
-                    if start_date:
-                        if isinstance(start_date, str):
-                            try:
-                                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-                            except:
-                                try:
-                                    start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
-                                except:
-                                    start_date = datetime.now()
-                        elif not isinstance(start_date, datetime):
-                            start_date = datetime.now()
-                        weeks_elapsed = (datetime.now() - start_date).days // 7
-            except:
-                pass
         
         base_hum = 65
         hum_reduction = weeks_elapsed * 5
