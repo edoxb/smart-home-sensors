@@ -3,12 +3,18 @@ from app.dependencies import get_business_logic, get_mongo_client
 from app.services.business_logic import BusinessLogic
 from app.db.mongo_client import MongoClientWrapper
 from typing import Optional, Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 router = APIRouter(prefix="/sensors/arduino-grow-box", tags=["arduino_grow_box"])
 
 # Variabile globale per tracciare lo stato della luce LED
 _led_state = {}  # {sensor_name: {"is_on": bool, "last_toggle": datetime, "cycle_start": datetime, "hours_on_today": float, "last_state_check": datetime}}
+
+# Variabile globale per tracciare lo stato degli attuatori (per isteresi)
+_actuator_hysteresis_state = {}  # {sensor_name: {"resistenza_was_low": bool, "pompa_acqua_was_low": bool}}
+
+# Variabile globale per tracciare lo stato degli attuatori (per isteresi)
+_actuator_hysteresis_state = {}  # {sensor_name: {"resistenza_was_low": bool, "pompa_acqua_was_low": bool}}
 
 async def handle_growbox_automation(sensor_name: str, data: dict, phase: Optional[str]):
     """
@@ -189,7 +195,7 @@ async def inizia_coltivazione(
         collection = mongo_client.db.sensor_configs
         
         # Imposta fase piantina e data inizio coltivazione
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         await collection.update_one(
             {"name": sensor_name},
             {
@@ -336,6 +342,53 @@ async def get_stato_coltivazione(
         # Calcola target in base alla fase (usa i dati del sensore se disponibili)
         targets = await _get_targets_for_phase(phase, mongo_client, sensor_name, sensor_data_dict if sensor_data_dict else None)
         
+        # Recupera stato LED per includere informazioni sul timestamp
+        led_status_info = {}
+        if sensor_name in _led_state:
+            led_state = _led_state[sensor_name]
+            last_toggle = led_state.get("last_toggle")
+            hours_on_today = led_state.get("hours_on_today", 0.0)
+            cycle_start = led_state.get("cycle_start")
+            is_on = led_state.get("is_on", False)
+            
+            # Calcola minuti invece di ore per il frontend
+            minutes_on_today = int(hours_on_today * 60)
+            
+            # Calcola minuti rimanenti
+            now = datetime.now(timezone.utc)
+            if cycle_start:
+                hours_since_cycle_start = (now - cycle_start).total_seconds() / 3600
+                if is_on:
+                    # Se acceso, calcola quando si spegne (dopo 18 ore totali)
+                    remaining_hours = 18 - hours_on_today
+                    minutes_until_off = int(remaining_hours * 60) if remaining_hours > 0 else 0
+                    minutes_until_on = None
+                else:
+                    # Se spento, calcola quando si accende (dopo 6 ore spente)
+                    hours_off = hours_since_cycle_start - hours_on_today
+                    max_off_hours = 24 - 18  # 6 ore
+                    remaining_off_hours = max_off_hours - hours_off
+                    minutes_until_on = int(remaining_off_hours * 60) if remaining_off_hours > 0 else 0
+                    minutes_until_off = None
+            else:
+                minutes_until_on = None
+                minutes_until_off = None
+            
+            # Serializza last_toggle con timezone (ISO format)
+            last_toggle_iso = None
+            if last_toggle:
+                # Se last_toggle non ha timezone, aggiungilo (assumendo UTC)
+                if last_toggle.tzinfo is None:
+                    last_toggle = last_toggle.replace(tzinfo=timezone.utc)
+                last_toggle_iso = last_toggle.isoformat()
+            
+            led_status_info = {
+                "minutes_on_today": minutes_on_today,
+                "minutes_until_on": minutes_until_on,
+                "minutes_until_off": minutes_until_off,
+                "last_toggle": last_toggle_iso
+            }
+        
         if config:
             return {
                 "success": True,
@@ -351,6 +404,7 @@ async def get_stato_coltivazione(
                     "avg_humidity": avg_hum
                 },
                 "sensor_data": sensor_data_dict,  # Dati completi del sensore
+                "led_status": led_status_info,  # Stato LED con timestamp
                 "sensor_name": sensor_name
             }
         else:
@@ -365,6 +419,7 @@ async def get_stato_coltivazione(
                     "avg_humidity": avg_hum
                 },
                 "sensor_data": sensor_data_dict,  # Dati completi del sensore
+                "led_status": led_status_info,  # Stato LED con timestamp
                 "sensor_name": sensor_name
             }
     except Exception as e:
@@ -432,7 +487,7 @@ async def control_luce_led(
         raise HTTPException(status_code=500, detail=result.error)
     # Aggiorna stato LED locale e nel DB
     if result.success:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         if sensor_name not in _led_state:
             cycle_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
             _led_state[sensor_name] = {
@@ -510,6 +565,93 @@ async def _handle_growbox_phase_logic(sensor_name: str, data: dict, phase: Optio
     elif phase == "fioritura":
         await _handle_fioritura_phase(sensor_name, data, avg_temp, avg_hum)
 
+async def _control_temperature_with_hysteresis(
+    sensor_name: str,
+    avg_temp: Optional[float],
+    target_temp_min: float,
+    target_temp_max: float
+):
+    """Controlla temperatura con isteresi: non spegne subito quando rientra nel range, ma solo al valore medio"""
+    if avg_temp is None:
+        return
+    
+    # Inizializza stato isteresi se non esiste
+    if sensor_name not in _actuator_hysteresis_state:
+        _actuator_hysteresis_state[sensor_name] = {"resistenza_was_low": False}
+    
+    hysteresis = _actuator_hysteresis_state[sensor_name]
+    target_temp_mid = (target_temp_min + target_temp_max) / 2
+    
+    if avg_temp < target_temp_min:
+        # Troppo freddo: accendi resistenza
+        await _execute_action_safe(sensor_name, "resistenza_on")
+        hysteresis["resistenza_was_low"] = True
+        print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
+    elif avg_temp > target_temp_max:
+        # Troppo caldo: spegni resistenza, accendi ventola
+        await _execute_action_safe(sensor_name, "resistenza_off")
+        await _execute_action_safe(sensor_name, "ventola_on")
+        hysteresis["resistenza_was_low"] = False
+        print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
+    else:
+        # Temperatura nel range: applica isteresi
+        if hysteresis["resistenza_was_low"]:
+            # Era stata accesa perché bassa: spegni solo quando raggiunge il valore medio
+            if avg_temp >= target_temp_mid:
+                await _execute_action_safe(sensor_name, "resistenza_off")
+                hysteresis["resistenza_was_low"] = False
+                print(f"    → Temperatura OK ({avg_temp:.1f}°C >= {target_temp_mid:.1f}°C): Spenta resistenza (isteresi)")
+            else:
+                print(f"    → Temperatura in risalita ({avg_temp:.1f}°C < {target_temp_mid:.1f}°C): Resistenza ancora accesa (isteresi)")
+        else:
+            # Non era stata accesa per bassa temperatura: spegni subito se accesa
+            await _execute_action_safe(sensor_name, "resistenza_off")
+
+async def _control_humidity_with_hysteresis(
+    sensor_name: str,
+    avg_hum: Optional[float],
+    target_hum_min: float,
+    target_hum_max: float
+):
+    """Controlla umidità con isteresi: usa pompa_acqua per aumentare umidità, non spegne subito quando rientra nel range"""
+    if avg_hum is None:
+        return
+    
+    # Inizializza stato isteresi se non esiste
+    if sensor_name not in _actuator_hysteresis_state:
+        _actuator_hysteresis_state[sensor_name] = {"pompa_acqua_was_low": False}
+    
+    hysteresis = _actuator_hysteresis_state[sensor_name]
+    target_hum_mid = (target_hum_min + target_hum_max) / 2
+    
+    if avg_hum < target_hum_min:
+        # Umidità bassa: accendi pompa_acqua per aumentare umidità
+        await _execute_action_safe(sensor_name, "pompa_acqua_on")
+        await _execute_action_safe(sensor_name, "pompa_aspirazione_off")  # Assicurati che pompa_aspirazione sia spenta
+        hysteresis["pompa_acqua_was_low"] = True
+        print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa acqua")
+    elif avg_hum > target_hum_max:
+        # Umidità alta: accendi ventola per ridurre umidità
+        await _execute_action_safe(sensor_name, "ventola_on")
+        await _execute_action_safe(sensor_name, "pompa_acqua_off")
+        await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+        hysteresis["pompa_acqua_was_low"] = False
+        print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola, spente pompe")
+    else:
+        # Umidità nel range: applica isteresi
+        if hysteresis["pompa_acqua_was_low"]:
+            # Era stata accesa perché bassa: spegni solo quando raggiunge il valore medio
+            if avg_hum >= target_hum_mid:
+                await _execute_action_safe(sensor_name, "pompa_acqua_off")
+                hysteresis["pompa_acqua_was_low"] = False
+                print(f"    → Umidità OK ({avg_hum:.1f}% >= {target_hum_mid:.1f}%): Spenta pompa acqua (isteresi)")
+            else:
+                print(f"    → Umidità in risalita ({avg_hum:.1f}% < {target_hum_mid:.1f}%): Pompa acqua ancora accesa (isteresi)")
+        else:
+            # Non era stata accesa per bassa umidità: spegni subito se accesa
+            await _execute_action_safe(sensor_name, "pompa_acqua_off")
+            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+
 async def _handle_piantina_phase(sensor_name: str, data: dict, avg_temp: Optional[float], avg_hum: Optional[float]):
     """Logica automazione fase piantina: 65-70% umidità, 20-25°C con luci accese, 4-5°C in meno con luci spente"""
     print(f"  → FASE PIANTINA: Logica automazione attiva")
@@ -532,35 +674,11 @@ async def _handle_piantina_phase(sensor_name: str, data: dict, avg_temp: Optiona
         target_temp_min = target_temp_led_off_min
         target_temp_max = target_temp_led_off_max
     
-    # Controllo temperatura
-    if avg_temp is not None:
-        if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
-            await _execute_action_safe(sensor_name, "resistenza_on")
-            print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
-        elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
-            await _execute_action_safe(sensor_name, "resistenza_off")
-            await _execute_action_safe(sensor_name, "ventola_on")
-            print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
-        else:
-            # Temperatura OK: spegni resistenza
-            await _execute_action_safe(sensor_name, "resistenza_off")
+    # Controllo temperatura con isteresi
+    await _control_temperature_with_hysteresis(sensor_name, avg_temp, target_temp_min, target_temp_max)
     
-    # Controllo umidità
-    if avg_hum is not None:
-        if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
-            await _execute_action_safe(sensor_name, "ventola_on")
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
-        else:
-            # Umidità OK: spegni pompa aspirazione
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+    # Controllo umidità con isteresi (usa pompa_acqua per aumentare umidità)
+    await _control_humidity_with_hysteresis(sensor_name, avg_hum, target_hum_min, target_hum_max)
     
     # Controllo luce LED: minimo 18 ore al giorno
     await _manage_led_schedule(sensor_name, min_hours_per_day=18, data=data)
@@ -594,12 +712,12 @@ async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optio
                                 start_date = datetime.strptime(start_date, "%Y-%m-%dT%H:%M:%S")
                             except:
                                 # Se fallisce, usa datetime.now come fallback
-                                start_date = datetime.now()
+                                start_date = datetime.now(timezone.utc)
                     elif isinstance(start_date, datetime):
                         pass  # Già un datetime
                     else:
-                        start_date = datetime.now()
-                    weeks_elapsed = (datetime.now() - start_date).days // 7
+                        start_date = datetime.now(timezone.utc)
+                    weeks_elapsed = (datetime.now(timezone.utc) - start_date).days // 7
         except:
             pass
     
@@ -627,35 +745,11 @@ async def _handle_vegetativa_phase(sensor_name: str, data: dict, avg_temp: Optio
     
     print(f"    → Settimane trascorse: {weeks_elapsed}, Umidità target: {target_hum_min}-{target_hum_max}%")
     
-    # Controllo temperatura
-    if avg_temp is not None:
-        if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
-            await _execute_action_safe(sensor_name, "resistenza_on")
-            print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
-        elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
-            await _execute_action_safe(sensor_name, "resistenza_off")
-            await _execute_action_safe(sensor_name, "ventola_on")
-            print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
-        else:
-            # Temperatura OK: spegni resistenza
-            await _execute_action_safe(sensor_name, "resistenza_off")
+    # Controllo temperatura con isteresi
+    await _control_temperature_with_hysteresis(sensor_name, avg_temp, target_temp_min, target_temp_max)
     
-    # Controllo umidità
-    if avg_hum is not None:
-        if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
-            await _execute_action_safe(sensor_name, "ventola_on")
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
-        else:
-            # Umidità OK: spegni pompa aspirazione
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+    # Controllo umidità con isteresi (usa pompa_acqua per aumentare umidità)
+    await _control_humidity_with_hysteresis(sensor_name, avg_hum, target_hum_min, target_hum_max)
     
     # Controllo luce LED: minimo 18 ore al giorno
     await _manage_led_schedule(sensor_name, min_hours_per_day=18, data=data)
@@ -677,35 +771,11 @@ async def _handle_fioritura_phase(sensor_name: str, data: dict, avg_temp: Option
     target_temp_min = target_temp_led_on_min
     target_temp_max = target_temp_led_on_max
     
-    # Controllo temperatura
-    if avg_temp is not None:
-        if avg_temp < target_temp_min:
-            # Troppo freddo: accendi resistenza
-            await _execute_action_safe(sensor_name, "resistenza_on")
-            print(f"    → Temperatura bassa ({avg_temp:.1f}°C < {target_temp_min}°C): Accesa resistenza")
-        elif avg_temp > target_temp_max:
-            # Troppo caldo: spegni resistenza, accendi ventola
-            await _execute_action_safe(sensor_name, "resistenza_off")
-            await _execute_action_safe(sensor_name, "ventola_on")
-            print(f"    → Temperatura alta ({avg_temp:.1f}°C > {target_temp_max}°C): Spenta resistenza, accesa ventola")
-        else:
-            # Temperatura OK: spegni resistenza
-            await _execute_action_safe(sensor_name, "resistenza_off")
+    # Controllo temperatura con isteresi
+    await _control_temperature_with_hysteresis(sensor_name, avg_temp, target_temp_min, target_temp_max)
     
-    # Controllo umidità
-    if avg_hum is not None:
-        if avg_hum < target_hum_min:
-            # Umidità bassa: accendi pompa aspirazione per aumentare umidità
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_on")
-            print(f"    → Umidità bassa ({avg_hum:.1f}% < {target_hum_min}%): Accesa pompa aspirazione")
-        elif avg_hum > target_hum_max:
-            # Umidità alta: accendi ventola per ridurre umidità
-            await _execute_action_safe(sensor_name, "ventola_on")
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
-            print(f"    → Umidità alta ({avg_hum:.1f}% > {target_hum_max}%): Accesa ventola")
-        else:
-            # Umidità OK: spegni pompa aspirazione
-            await _execute_action_safe(sensor_name, "pompa_aspirazione_off")
+    # Controllo umidità con isteresi (usa pompa_acqua per aumentare umidità)
+    await _control_humidity_with_hysteresis(sensor_name, avg_hum, target_hum_min, target_hum_max)
     
     # Controllo luce LED: minimo 18 ore al giorno
     await _manage_led_schedule(sensor_name, min_hours_per_day=18, data=data)
@@ -727,7 +797,7 @@ async def _check_led_state(sensor_name: str, data: dict = None) -> bool:
 
 async def _manage_led_schedule(sensor_name: str, min_hours_per_day: int = 18, data: dict = None):
     """Gestisce lo schedule della luce LED per garantire esattamente 18 ore al giorno"""
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     
     # Inizializza lo stato se non esiste
     if sensor_name not in _led_state:
