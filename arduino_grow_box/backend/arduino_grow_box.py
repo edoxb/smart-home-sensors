@@ -229,7 +229,41 @@ async def inizia_coltivazione(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
-
+@router.get("/{sensor_name}/stats")
+async def get_backup_days(
+    sensor_name: str,
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
+):
+    """Restituisce l'elenco delle cartelle di backup disponibili (giorni)"""
+    try:
+        # Ottieni il percorso della directory di backup
+        backup_dir = mongo_client.backup_dir
+        
+        # Verifica che la directory esista
+        if not backup_dir.exists():
+            return {"days": []}
+        
+        # Lista tutte le cartelle (giorni) presenti
+        days = []
+        for item in backup_dir.iterdir():
+            if item.is_dir():
+                # Verifica che il nome della cartella sia nel formato YYYY-MM-DD
+                try:
+                    datetime.strptime(item.name, "%Y-%m-%d")
+                    days.append(item.name)
+                except ValueError:
+                    # Ignora cartelle che non corrispondono al formato data
+                    continue
+        
+        # Ordina le date in ordine decrescente (più recenti prima)
+        days.sort(reverse=True)
+        
+        return {
+            "backup_dir": str(backup_dir),
+            "days": days
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero statistiche: {str(e)}")
 @router.post("/{sensor_name}/fine-coltivazione")
 async def fine_coltivazione(
     sensor_name: str,

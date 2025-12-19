@@ -1,4 +1,3 @@
-// Sostituisci l’intero ArduinoGrowBoxControl.tsx con questo contenuto
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 
 interface SensorControlProps { sensorName: string }
@@ -58,6 +57,11 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({})
+  
+  const [showStats, setShowStats] = useState(false)
+  const [availableDays, setAvailableDays] = useState<string[]>([])
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+  const [statsLoading, setStatsLoading] = useState(false)
 
   const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
   const [pompaAcquaOn, setPompaAcquaOn] = useState(false)
@@ -76,7 +80,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
 
   const lastUpdateRef = useRef<number>(Date.now())
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
+  
   const formatMinutes = (m?: number | null) => {
     if (m === null || m === undefined) return 'N/A'
     const h = Math.floor(m / 60)
@@ -126,6 +130,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       console.error('Errore caricamento fase:', err)
     }
   }, [sensorName])
+
+  const fetchStats = async () => {
+    setStatsLoading(true)
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stats`)
+      if (!response.ok) throw new Error(`Errore ${response.status}`)
+      const result = await response.json()
+      setAvailableDays(result.days || [])
+      setShowStats(true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Errore nel caricamento statistiche')
+    } finally {
+      setStatsLoading(false)
+    }
+  }
 
   const fetchCultivationStatus = useCallback(async () => {
     try {
@@ -298,6 +317,21 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
           style={{ padding: '0.75rem 1.25rem', background: '#F44336', border: 'none', borderRadius: '6px', color: '#fff', cursor: 'pointer' }}>
           Termina coltivazione
         </button>
+        <button 
+          type="button" 
+          onClick={fetchStats} 
+          disabled={statsLoading}
+          style={{ 
+            padding: '0.75rem 1.25rem', 
+            background: '#2196F3', 
+            border: 'none', 
+            borderRadius: '6px', 
+            color: '#fff', 
+            cursor: 'pointer' 
+          }}
+        >
+          {statsLoading ? 'Caricamento...' : 'Statistiche'}
+        </button>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <span>Fase:</span>
@@ -316,6 +350,66 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
           ))}
         </div>
       </div>
+
+      {showStats && (
+        <div style={{ 
+          marginBottom: '2rem', 
+          padding: '1.5rem', 
+          backgroundColor: 'rgba(0, 0, 0, 0.3)', 
+          borderRadius: '8px',
+          border: '2px solid #2196F3'
+        }}>
+          <h2 style={{ color: '#F4B342', marginBottom: '1rem' }}>Statistiche - Seleziona Giorno</h2>
+          {availableDays.length === 0 ? (
+            <p style={{ color: '#fff' }}>Nessun backup disponibile</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {availableDays.map((day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => setSelectedDay(day)}
+                  style={{
+                    padding: '0.75rem 1rem',
+                    backgroundColor: selectedDay === day ? '#4CAF50' : 'rgba(255, 255, 255, 0.1)',
+                    border: selectedDay === day ? '2px solid #4CAF50' : '2px solid transparent',
+                    borderRadius: '6px',
+                    color: '#fff',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {new Date(day).toLocaleDateString('it-IT', { 
+                    weekday: 'long', 
+                    year: 'numeric', 
+                    month: 'long', 
+                    day: 'numeric' 
+                  })}
+                </button>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setShowStats(false)
+              setSelectedDay(null)
+            }}
+            style={{
+              marginTop: '1rem',
+              padding: '0.5rem 1rem',
+              backgroundColor: '#666',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#fff',
+              cursor: 'pointer'
+            }}
+          >
+            Chiudi
+          </button>
+        </div>
+      )}
 
       {cultivationActive && fase && (
         <div style={{ marginBottom: '2rem' }}>
