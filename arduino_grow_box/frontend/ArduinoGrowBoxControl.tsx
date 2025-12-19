@@ -63,6 +63,8 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
   const [availableDays, setAvailableDays] = useState<string[]>([])
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [statsLoading, setStatsLoading] = useState(false)
+  const [chartData, setChartData] = useState<Array<{ time: string; avg_temperature: number | null; avg_humidity: number | null; timestamp: string }>>([])
+  const [chartLoading, setChartLoading] = useState(false)
 
   const [pompaAspirazioneOn, setPompaAspirazioneOn] = useState(false)
   const [pompaAcquaOn, setPompaAcquaOn] = useState(false)
