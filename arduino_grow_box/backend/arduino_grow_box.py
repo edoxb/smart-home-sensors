@@ -4,6 +4,8 @@ from app.services.business_logic import BusinessLogic
 from app.db.mongo_client import MongoClientWrapper
 from typing import Optional, Dict, Any
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import json
 
 router = APIRouter(prefix="/sensors/arduino-grow-box", tags=["arduino_grow_box"])
 
@@ -229,41 +231,7 @@ async def inizia_coltivazione(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Errore: {str(e)}")
-@router.get("/{sensor_name}/stats")
-async def get_backup_days(
-    sensor_name: str,
-    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
-):
-    """Restituisce l'elenco delle cartelle di backup disponibili (giorni)"""
-    try:
-        # Ottieni il percorso della directory di backup
-        backup_dir = mongo_client.backup_dir
-        
-        # Verifica che la directory esista
-        if not backup_dir.exists():
-            return {"days": []}
-        
-        # Lista tutte le cartelle (giorni) presenti
-        days = []
-        for item in backup_dir.iterdir():
-            if item.is_dir():
-                # Verifica che il nome della cartella sia nel formato YYYY-MM-DD
-                try:
-                    datetime.strptime(item.name, "%Y-%m-%d")
-                    days.append(item.name)
-                except ValueError:
-                    # Ignora cartelle che non corrispondono al formato data
-                    continue
-        
-        # Ordina le date in ordine decrescente (più recenti prima)
-        days.sort(reverse=True)
-        
-        return {
-            "backup_dir": str(backup_dir),
-            "days": days
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Errore nel recupero statistiche: {str(e)}")
+
 @router.post("/{sensor_name}/fine-coltivazione")
 async def fine_coltivazione(
     sensor_name: str,
@@ -552,6 +520,128 @@ async def control_ventola(
     # Salva stato nel DB
     await _save_actuator_state(sensor_name, "ventola", action == "on", mongo_client)
     return result
+
+@router.get("/{sensor_name}/stats")
+async def get_backup_days(
+    sensor_name: str,
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
+):
+    """Restituisce l'elenco delle cartelle di backup disponibili (giorni)"""
+    try:
+        # Ottieni il percorso della directory di backup
+        backup_dir = mongo_client.backup_dir
+        
+        # Verifica che la directory esista
+        if not backup_dir.exists():
+            return {"days": []}
+        
+        # Lista tutte le cartelle (giorni) presenti
+        days = []
+        for item in backup_dir.iterdir():
+            if item.is_dir():
+                # Verifica che il nome della cartella sia nel formato YYYY-MM-DD
+                try:
+                    datetime.strptime(item.name, "%Y-%m-%d")
+                    days.append(item.name)
+                except ValueError:
+                    # Ignora cartelle che non corrispondono al formato data
+                    continue
+        
+        # Ordina le date in ordine decrescente (più recenti prima)
+        days.sort(reverse=True)
+        
+        return {
+            "backup_dir": str(backup_dir),
+            "days": days
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero statistiche: {str(e)}")
+
+@router.get("/{sensor_name}/stats/{day}")
+async def get_day_statistics(
+    sensor_name: str,
+    day: str,
+    mongo_client: MongoClientWrapper = Depends(get_mongo_client)
+):
+    """Restituisce i dati statistici per un giorno specifico"""
+    try:
+        # Valida formato data (YYYY-MM-DD)
+        try:
+            datetime.strptime(day, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato data non valido. Usa YYYY-MM-DD")
+        
+        # Ottieni il percorso della directory di backup
+        backup_dir = mongo_client.backup_dir
+        day_dir = backup_dir / day
+        
+        # Verifica che la directory esista
+        if not day_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Directory per il giorno {day} non trovata")
+        
+        # Cerca il file JSON che inizia con il nome del sensore (con spazio o underscore)
+        json_files = list(day_dir.glob(f"{sensor_name}_*.json"))
+        if not json_files:
+            # Prova anche con spazio invece di underscore
+            json_files = list(day_dir.glob(f"{sensor_name.replace(' ', '_')}_*.json"))
+        if not json_files:
+            # Prova anche con underscore invece di spazio
+            json_files = list(day_dir.glob(f"{sensor_name.replace('_', ' ')}_*.json"))
+        
+        if not json_files:
+            raise HTTPException(status_code=404, detail=f"File JSON per {sensor_name} del giorno {day} non trovato")
+        
+        # Leggi il primo file trovato
+        json_file = json_files[0]
+        with open(json_file, 'r', encoding='utf-8') as f:
+            backup_data = json.load(f)
+        
+        # Estrai e processa i dati
+        records = []
+        for record in backup_data.get("data", []):
+            timestamp = record.get("timestamp")
+            data = record.get("data", {})
+            
+            # Calcola temperatura media
+            temps = [
+                data.get("temperature_1"),
+                data.get("temperature_2"),
+                data.get("temperature_3"),
+                data.get("temperature_4")
+            ]
+            valid_temps = [t for t in temps if t is not None]
+            avg_temp = sum(valid_temps) / len(valid_temps) if valid_temps else None
+            
+            # Calcola umidità media
+            hums = [
+                data.get("humidity_1"),
+                data.get("humidity_2"),
+                data.get("humidity_3"),
+                data.get("humidity_4")
+            ]
+            valid_hums = [h for h in hums if h is not None]
+            avg_hum = sum(valid_hums) / len(valid_hums) if valid_hums else None
+            
+            if timestamp and (avg_temp is not None or avg_hum is not None):
+                records.append({
+                    "timestamp": timestamp,
+                    "avg_temperature": round(avg_temp, 2) if avg_temp is not None else None,
+                    "avg_humidity": round(avg_hum, 2) if avg_hum is not None else None
+                })
+        
+        # Ordina per timestamp
+        records.sort(key=lambda x: x["timestamp"])
+        
+        return {
+            "day": day,
+            "sensor_name": sensor_name,
+            "total_records": len(records),
+            "data": records
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Errore nel recupero statistiche: {str(e)}")
 
 # Funzione per la logica di automazione delle 3 fasi
 async def _handle_growbox_phase_logic(sensor_name: str, data: dict, phase: Optional[str]):

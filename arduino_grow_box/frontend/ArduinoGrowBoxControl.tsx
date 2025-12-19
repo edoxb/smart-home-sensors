@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 interface SensorControlProps { sensorName: string }
 interface ArduinoGrowBoxData {
@@ -143,6 +144,27 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
       alert(err instanceof Error ? err.message : 'Errore nel caricamento statistiche')
     } finally {
       setStatsLoading(false)
+    }
+  }
+
+  const fetchDayData = async (day: string) => {
+    setChartLoading(true)
+    try {
+      const response = await fetch(`/sensors/arduino-grow-box/${sensorName}/stats/${day}`)
+      if (!response.ok) throw new Error(`Errore ${response.status}`)
+      const result = await response.json()
+      
+      // Formatta i dati per il chart (converte timestamp in formato leggibile)
+      const formattedData = result.data.map((item: any) => ({
+        ...item,
+        time: new Date(item.timestamp).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
+      }))
+      setChartData(formattedData)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Errore nel caricamento dati del giorno')
+      setChartData([])
+    } finally {
+      setChartLoading(false)
     }
   }
 
@@ -368,7 +390,10 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
                 <button
                   key={day}
                   type="button"
-                  onClick={() => setSelectedDay(day)}
+                  onClick={() => {
+                    setSelectedDay(day)
+                    fetchDayData(day)
+                  }}
                   style={{
                     padding: '0.75rem 1rem',
                     backgroundColor: selectedDay === day ? '#4CAF50' : 'rgba(255, 255, 255, 0.1)',
@@ -395,6 +420,7 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
             onClick={() => {
               setShowStats(false)
               setSelectedDay(null)
+              setChartData([])
             }}
             style={{
               marginTop: '1rem',
@@ -408,6 +434,67 @@ const ArduinoGrowBoxControl: React.FC<SensorControlProps> = ({ sensorName }) => 
           >
             Chiudi
           </button>
+        </div>
+      )}
+
+      {selectedDay && chartData.length > 0 && (
+        <div style={{ 
+          marginBottom: '2rem', 
+          padding: '1.5rem', 
+          backgroundColor: 'rgba(0, 0, 0, 0.3)', 
+          borderRadius: '8px',
+          border: '2px solid #4CAF50'
+        }}>
+          <h2 style={{ color: '#F4B342', marginBottom: '1rem' }}>
+            Grafico - {new Date(selectedDay).toLocaleDateString('it-IT', { 
+              weekday: 'long', 
+              year: 'numeric', 
+              month: 'long', 
+              day: 'numeric' 
+            })}
+          </h2>
+          {chartLoading ? (
+            <p style={{ color: '#fff' }}>Caricamento dati...</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={400}>
+              <LineChart data={chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#666" />
+                <XAxis 
+                  dataKey="time" 
+                  stroke="#F4B342"
+                  style={{ fontSize: '12px' }}
+                />
+                <YAxis 
+                  stroke="#F4B342"
+                  style={{ fontSize: '12px' }}
+                />
+                <Tooltip 
+                  contentStyle={{ 
+                    backgroundColor: '#1A1A1A', 
+                    border: '1px solid #F4B342',
+                    borderRadius: '4px'
+                  }}
+                />
+                <Legend />
+                <Line 
+                  type="monotone" 
+                  dataKey="avg_temperature" 
+                  stroke="#F44336" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Temperatura Media (°C)"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="avg_humidity" 
+                  stroke="#2196F3" 
+                  strokeWidth={2}
+                  dot={false}
+                  name="Umidità Media (%)"
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
         </div>
       )}
 
